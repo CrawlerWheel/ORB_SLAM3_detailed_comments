@@ -210,6 +210,7 @@ cv::Point3f KannalaBrandt8::unproject(const cv::Point2f &p2D)
         }
         // scale = theta - theta_d;
         // 求得tan(θ) / θd
+        /// 求得的tan(θ) 就是未去畸变的归一化平面上的原始投影的半径 因为 tan(θ) = r/1
         scale = std::tan(theta) / theta_d;
     }
 
@@ -451,7 +452,7 @@ float KannalaBrandt8::TriangulateMatches(
     // 然后计算他们的夹角，看其是否超过1.14° 
     Eigen::Vector3f r21 = R12 * r2;
 
-    const float cosParallaxRays = r1.dot(r21) / (r1.norm() * r21.norm());
+    const float cosParallaxRays = r1.dot(r21) / (r1.norm() * r21.norm());/// 不理解就画画图
 
     if (cosParallaxRays > 0.9998)
     {
@@ -476,6 +477,7 @@ float KannalaBrandt8::TriangulateMatches(
     Eigen::Matrix<float, 3, 4> Tcw2;
 
     Eigen::Matrix3f R21 = R12.transpose();
+    /// SE3的矩阵的逆矩阵的平移部分 ，不是想当然的t21 ，而是-R21 * t12 ！ 可以Tcw2*[R12,t12]进行验证！
     Tcw2 << R21, -R21 * t12;
 
     // 4. 三角化

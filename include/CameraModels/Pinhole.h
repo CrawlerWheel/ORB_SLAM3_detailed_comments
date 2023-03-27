@@ -65,7 +65,7 @@ namespace ORB_SLAM3 {
         Eigen::Vector2f projectMat(const cv::Point3f& p3D);
 
         float uncertainty2(const Eigen::Matrix<double,2,1> &p2D);
-
+        ///反投影
         Eigen::Vector3f unprojectEig(const cv::Point2f &p2D);
         cv::Point3f unproject(const cv::Point2f &p2D);
 

@@ -1768,12 +1768,13 @@ void Tracking::PreintegrateIMU()
                 // 拿到第一个imu数据作为起始数据
                 IMU::Point* m = &mlQueueImuData.front();
                 cout.precision(17);
+                //三个判别就是时间线的三段
                 // imu起始数据会比当前帧的前一帧时间戳早,如果相差0.001则舍弃这个imu数据
                 if(m->t<mCurrentFrame.mpPrevFrame->mTimeStamp-mImuPer)
                 {
                     mlQueueImuData.pop_front();
                 }
-                // 同样最后一个的imu数据时间戳也不能理当前帧时间间隔多余0.001
+                // 同样最后一个的imu数据时间戳也不能离当前帧时间的左侧间隔多余0.001
                 else if(m->t<mCurrentFrame.mTimeStamp-mImuPer)
                 {
                     mvImuFromLastFrame.push_back(*m);
@@ -1817,9 +1818,10 @@ void Tracking::PreintegrateIMU()
      */
     for(int i=0; i<n; i++)
     {
-        float tstep;
+        float tstep;///delta t
         Eigen::Vector3f acc, angVel;
         // 第一帧数据但不是最后两帧,imu总帧数大于2
+        ///这种情况的的目的是为了求得 LastFrame时间点 到 第二个imu时间点 的imu测量值中值
         if((i==0) && (i<(n-1)))
         {
             // 获取相邻两段imu的时间间隔
@@ -1872,7 +1874,7 @@ void Tracking::PreintegrateIMU()
 
     // 记录当前预积分的图像帧
     mCurrentFrame.mpImuPreintegratedFrame = pImuPreintegratedFromLastFrame;
-    mCurrentFrame.mpImuPreintegrated = mpImuPreintegratedFromLastKF;
+    mCurrentFrame.mpImuPreintegrated = mpImuPreintegratedFromLastKF;///右值指向的对象在后续积分的过程继续更新，怎么能简单拷贝以下指针呢？？？
     mCurrentFrame.mpLastKeyFrame = mpLastKeyFrame;
 
     mCurrentFrame.setIntegrated();
@@ -1926,6 +1928,7 @@ bool Tracking::PredictStateIMU()
 
         // 记录bias
         mCurrentFrame.mImuBias = mpLastKeyFrame->GetImuBias();
+        /// mPredBias 啥作用
         mCurrentFrame.mPredBias = mCurrentFrame.mImuBias;
         return true;
     }
@@ -1983,6 +1986,7 @@ void Tracking::Track()
     if(mpLocalMapper->mbBadImu)
     {
         cout << "TRACK: Reset map because local mapper set the bad imu flag " << endl;
+        /// 就是重置局部地图马？？？
         mpSystem->ResetActiveMap();
         return;
     }
@@ -2079,9 +2083,10 @@ void Tracking::Track()
 
     mbMapUpdated = false;
 
-    // 判断地图id是否更新了
+    /// 判断地图id是否更新了 区分不开？？？   GetMapChangeIndex获得的是地图总共改变的次数   GetLastMapChange返回上一次跟踪过程的累计改变次数
     int nCurMapChangeIndex = pCurrentMap->GetMapChangeIndex();
     int nMapChangeIndex = pCurrentMap->GetLastMapChange();
+    /// 改变次数都是累加的，只要变大了就要更新
     if(nCurMapChangeIndex>nMapChangeIndex)
     {
         // 检测到地图更新了
@@ -2459,6 +2464,7 @@ void Tracking::Track()
             pF->mpPrevFrame = new Frame(mLastFrame);
 
             // Load preintegration
+            ///IMU重置
             pF->mpImuPreintegratedFrame = new IMU::Preintegrated(mCurrentFrame.mpImuPreintegratedFrame);
         }
         // 下面代码没有用
@@ -2621,7 +2627,7 @@ void Tracking::Track()
             mCurrentFrame.mpReferenceKF = mpReferenceKF;
         // 保存上一帧的数据,当前帧变上一帧
         mLastFrame = Frame(mCurrentFrame);
-    }
+    }///已初始化的情况
 
     // 查看到此为止
     // mState的历史变化---上一帧跟踪成功---当前帧跟踪成功---局部地图跟踪成功---OK
@@ -2724,6 +2730,7 @@ void Tracking::StereoInitialization()
 
         // Create MapPoints and asscoiate to KeyFrame
         if(!mpCamera2){
+            /// RGBD相机
             // 为每个特征点构造MapPoint
             for(int i=0; i<mCurrentFrame.N;i++)
             {
@@ -2749,6 +2756,7 @@ void Tracking::StereoInitialization()
                 }
             }
         } else{
+            /// STEREO
             for(int i = 0; i < mCurrentFrame.Nleft; i++){
                 int rightIndex = mCurrentFrame.mvLeftToRightMatch[i];
                 if(rightIndex != -1){
@@ -2791,7 +2799,7 @@ void Tracking::StereoInitialization()
 
         // 把当前（最新的）局部MapPoints作为ReferenceMapPoints
         mpAtlas->SetReferenceMapPoints(mvpLocalMapPoints);
-
+        /// mpAtlas在此又加了一遍pKFini？？？
         mpAtlas->GetCurrentMap()->mvpKeyFrameOrigins.push_back(pKFini);
 
         mpMapDrawer->SetCurrentCameraPose(mCurrentFrame.GetPose());
@@ -3234,7 +3242,7 @@ bool Tracking::TrackReferenceKeyFrame()
     }
 
     if (mSensor == System::IMU_MONOCULAR || mSensor == System::IMU_STEREO || mSensor == System::IMU_RGBD)
-        return true;
+        return true; ///IMU模式下更加宽松了
     else
         return nmatchesMap>=10;  // 跟踪成功的数目超过10才认为跟踪成功，否则跟踪失败
 }
@@ -4310,7 +4318,7 @@ void Tracking::UpdateLocalKeyFrames()
 }
 
 /**
- * @details 重定位过程
+ * @details 重定位过程 在IMU加持的SLAM模式下，已经不需要重定位函数
  * @return true 
  * @return false 
  * 
@@ -4762,6 +4770,9 @@ void Tracking::InformOnlyTracking(const bool &flag)
  * localmapping中初始化imu中使用，速度的走向（仅在imu模式使用），最开始速度定义于imu初始化时，每个关键帧都根据位移除以时间得到，经过非线性优化保存于KF中.
  * 之后使用本函数，让上一帧与当前帧分别与他们对应的上一关键帧做速度叠加得到，后面新的frame速度由上一个帧速度决定，如果使用匀速模型（大多数情况下），通过imu积分更新速度。
  * 新的关键帧继承于对应帧
+ * 1.更新过去所有帧的平移的尺度信息
+ * 2.重点更新Tracking线程中上一普通帧位姿
+ * 3.重点更新Tracking线程中当前帧位姿
  * @param  s 尺度
  * @param  b 初始化后第一帧的偏置
  * @param  pCurrentKeyFrame 当前关键帧
@@ -4784,12 +4795,12 @@ void Tracking::UpdateFrameIMU(const float s, const IMU::Bias &b, KeyFrame* pCurr
             continue;
 
         KeyFrame* pKF = *lRit;
-
+        ///确定可用的参考关键帧
         while(pKF->isBad())
         {
             pKF = pKF->GetParent();
         }
-
+        ///这个判别什么意思？？？ 判别下当前参考帧所在地图是否是本次初始化完成的地图
         if(pKF->GetMap() == pMap)
         {
             (*lit).translation() *= s;
@@ -4798,6 +4809,8 @@ void Tracking::UpdateFrameIMU(const float s, const IMU::Bias &b, KeyFrame* pCurr
     // 设置偏置
     mLastBias = b;
     // 设置上一关键帧，如果说mpLastKeyFrame已经是经过添加的新的kf，而pCurrentKeyFrame还是上一个kf，mpLastKeyFrame直接指向之前的kf
+    /// 这里有个细节：ML初始化过程中，tracking线程是允许向ML线程插入关键帧的，这导致一阶段初始化完成后，tracking线程的mpLastKeyFrame
+    ///            已不是ML初始化时指定的那个pCurrentKeyFrame。因此要用Tracking更新时，需要将mpLastKeyFrame重置回pCurrentKeyFrame。
     mpLastKeyFrame = pCurrentKeyFrame;
     // 更新偏置
     mLastFrame.SetNewBias(mLastBias);
@@ -4810,6 +4823,7 @@ void Tracking::UpdateFrameIMU(const float s, const IMU::Bias &b, KeyFrame* pCurr
     }
 
     // TODO 如果上一帧正好是上一帧的上一关键帧（mLastFrame.mpLastKeyFrame与mLastFrame不可能是一个，可以验证一下）
+    /// 如果上一帧就是关键帧
     if(mLastFrame.mnId == mLastFrame.mpLastKeyFrame->mnFrameId)
     {
         mLastFrame.SetImuPoseVelocity(mLastFrame.mpLastKeyFrame->GetImuRotation(),
@@ -4844,7 +4858,7 @@ void Tracking::UpdateFrameIMU(const float s, const IMU::Bias &b, KeyFrame* pCurr
                                       Vwb1 + Gz*t12 + Rwb1*mCurrentFrame.mpImuPreintegrated->GetUpdatedDeltaVelocity());
     }
 
-    mnFirstImuFrameId = mCurrentFrame.mnId;
+    mnFirstImuFrameId = mCurrentFrame.mnId;///标记当前最新一次用IMU初始化信息更新普通帧的帧ID
 }
 
 void Tracking::NewDataset()
@@ -4859,7 +4873,7 @@ int Tracking::GetNumberDataset()
 
 int Tracking::GetMatchesInliers()
 {
-    return mnMatchesInliers;
+    return mnMatchesInliers;///跟踪第二阶段 局部地图跟踪的 地图点匹配数
 }
 
 void Tracking::SaveSubTrajectory(string strNameFile_frames, string strNameFile_kf, string strFolder)

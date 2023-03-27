@@ -211,7 +211,7 @@ bool Pinhole::epipolarConstrain(
         return false;
 
     const float dsqr = num * num / den;
-
+    ///3.84 卡方系数
     return dsqr < 3.84 * unc;
 }
 

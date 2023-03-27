@@ -59,43 +59,43 @@ ${PROJECT_SOURCE_DIR}/../../../lib/libORB_SLAM3.so
 -lboost_system
 )
 
-# Node for monocular camera
-rosbuild_add_executable(Mono
-src/ros_mono.cc
-)
+## Node for monocular camera
+#rosbuild_add_executable(Mono
+#src/ros_mono.cc
+#)
+#
+#target_link_libraries(Mono
+#${LIBS}
+#)
 
-target_link_libraries(Mono
-${LIBS}
-)
+## Node for monocular camera (Augmented Reality Demo)
+#rosbuild_add_executable(MonoAR
+#src/AR/ros_mono_ar.cc
+#src/AR/ViewerAR.h
+#src/AR/ViewerAR.cc
+#)
+#
+#target_link_libraries(MonoAR
+#${LIBS}
+#)
 
-# Node for monocular camera (Augmented Reality Demo)
-rosbuild_add_executable(MonoAR
-src/AR/ros_mono_ar.cc
-src/AR/ViewerAR.h
-src/AR/ViewerAR.cc
-)
+## Node for stereo camera
+#rosbuild_add_executable(Stereo
+#src/ros_stereo.cc
+#)
+#
+#target_link_libraries(Stereo
+#${LIBS}
+#)
 
-target_link_libraries(MonoAR
-${LIBS}
-)
-
-# Node for stereo camera
-rosbuild_add_executable(Stereo
-src/ros_stereo.cc
-)
-
-target_link_libraries(Stereo
-${LIBS}
-)
-
-# Node for RGB-D camera
-rosbuild_add_executable(RGBD
-src/ros_rgbd.cc
-)
-
-target_link_libraries(RGBD
-${LIBS}
-)
+## Node for RGB-D camera
+#rosbuild_add_executable(RGBD
+#src/ros_rgbd.cc
+#)
+#
+#target_link_libraries(RGBD
+#${LIBS}
+#)
 
 # Node for monocular-inertial camera
 rosbuild_add_executable(Mono_Inertial

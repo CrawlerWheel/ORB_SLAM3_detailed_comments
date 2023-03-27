@@ -158,7 +158,7 @@ public:
         // 官方讲解cache
         // 需要在oplusImpl与setEstimate函数中添加
         _estimate.Update(update_);
-        updateCache();
+        updateCache();///加速
     }
 };
 
@@ -295,6 +295,7 @@ public:
     void Update(const double *pu)
     {
         // 强行优化不可观的数据，会导致不收敛
+        /// 为什么z轴方向优化不可观？？？
         Rwg = Rwg * ExpSO3(pu[0], pu[1], 0.0);
     }
 
@@ -415,6 +416,7 @@ public:
         const g2o::VertexSBAPointXYZ *VPoint = static_cast<const g2o::VertexSBAPointXYZ *>(_vertices[0]);
         const VertexPose *VPose = static_cast<const VertexPose *>(_vertices[1]);
         const Eigen::Vector2d obs(_measurement);
+        /// obs - C_Project(Tcwi * Pwi)
         _error = obs - VPose->estimate().Project(VPoint->estimate(), cam_idx);
     }
 

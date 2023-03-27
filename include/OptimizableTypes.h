@@ -28,7 +28,7 @@
 
 namespace ORB_SLAM3
 {
-// 左目纯位姿优化的边，左目点的重投影误差相对于左目位姿
+// 左目纯位姿优化的边，左目点的重投影误差相对于左目位姿 2是误差维度 Eigen::Vector2d是误差类型
 class EdgeSE3ProjectXYZOnlyPose : public g2o::BaseUnaryEdge<2, Eigen::Vector2d, g2o::VertexSE3Expmap>
 {
 public:
@@ -117,7 +117,7 @@ public:
     {
         const g2o::VertexSE3Expmap *v1 = static_cast<const g2o::VertexSE3Expmap *>(_vertices[1]);
         const g2o::VertexSBAPointXYZ *v2 = static_cast<const g2o::VertexSBAPointXYZ *>(_vertices[0]);
-        return ((v1->estimate().map(v2->estimate()))(2) > 0.0);
+        return ((v1->estimate().map(v2->estimate()))(2) > 0.0);///相机坐标系下，3D点坐标估计值的z轴，即深度
     }
 
     virtual void linearizeOplus();

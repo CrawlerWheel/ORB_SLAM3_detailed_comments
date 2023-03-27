@@ -149,8 +149,8 @@ public:
 
     // Lists used to recover the full camera trajectory at the end of the execution.
     // Basically we store the reference keyframe for each frame and its relative transformation
-    list<Sophus::SE3f> mlRelativeFramePoses;
-    list<KeyFrame*> mlpReferences;
+    list<Sophus::SE3f> mlRelativeFramePoses;///记录了每一帧的相对变换
+    list<KeyFrame*> mlpReferences;///记录了每一帧的参考关键帧
     list<double> mlFrameTimes;
     list<bool> mlbLost;
 

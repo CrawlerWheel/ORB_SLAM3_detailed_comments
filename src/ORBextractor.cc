@@ -1663,7 +1663,7 @@ static void computeDescriptors(const Mat& image, vector<KeyPoint>& keypoints, Ma
 					// 特征点本身直接乘缩放倍数就可以了
                     keypoint->pt *= scale;
                 }
-                // ?TODO vLappingArea 
+                /// vLappingArea  对应了配置文件中的lappingBegin lappingEnd ,即为左右目公共区域部分
                 if(keypoint->pt.x >= vLappingArea[0] && keypoint->pt.x <= vLappingArea[1]){
                     _keypoints.at(stereoIndex) = (*keypoint);
                     desc.row(i).copyTo(descriptors.row(stereoIndex));

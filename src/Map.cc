@@ -264,7 +264,8 @@ bool Map::IsBad()
 }
 
 // 恢复尺度及重力方向
-/** imu在localmapping中初始化，LocalMapping::InitializeIMU中使用，误差包含三个残差与两个偏置
+/** 用最新的重力坐标系变换和尺度更新地图中关键帧和地图点
+ * imu在localmapping中初始化，LocalMapping::InitializeIMU中使用，误差包含三个残差与两个偏置
  * 地图融合时也会使用
  * @param R 初始化时为Rgw
  * @param s 尺度
@@ -276,7 +277,8 @@ void Map::ApplyScaledRotation(const Sophus::SE3f &T, const float s, const bool b
     unique_lock<mutex> lock(mMutexMap);
 
     // Body position (IMU) of first keyframe is fixed to (0,0,0)
-    Sophus::SE3f Tyw = T;
+    /// 初始化阶段，y视为重力坐标系， w视为纯视觉的世界坐标系
+    Sophus::SE3f Tyw = T;///重力方向位姿调整的位移部分应该是0
     Eigen::Matrix3f Ryw = Tyw.rotationMatrix();
     Eigen::Vector3f tyw = Tyw.translation();
 
@@ -286,14 +288,15 @@ void Map::ApplyScaledRotation(const Sophus::SE3f &T, const float s, const bool b
         /**
          * | Rw2w1  tw2w1 |   *   | Rw1c  s*tw1c  |     =    |  Rw2c     s*Rw2w1*tw1c + tw2w1  |
          * |   0      1   |       |  0       1    |          |   0                1            |
-         * 这么做比正常乘在旋转上少了个s，后面不需要这个s了，因为所有mp在下面已经全部转到了w2坐标系下，不存在尺度变化了
+         * 这么做比下面公式中正常乘在旋转上少了个s，后面不需要这个s了，因为所有mp在下面已经全部转到了w2坐标系下，不存在尺度变化了
+         *  理解的还是不够透彻？？？
          * 
          * | s*Rw2w1  tw2w1 |   *   | Rw1c    tw1c  |     =    |  s*Rw2c     s*Rw2w1*tw1c + tw2w1  |
          * |   0        1   |       |  0       1    |          |     0                1            |
          */
         KeyFrame *pKF = *sit;
         Sophus::SE3f Twc = pKF->GetPoseInverse();
-        Twc.translation() *= s;
+        Twc.translation() *= s;/// 仅在SE3平移部分乘以了尺度
 
         // |  Ryc     s*Ryw*twc + tyw  |
         // |   0           1           |

@@ -50,6 +50,7 @@ bool TwoViewReconstruction::Reconstruct(
     const std::vector<cv::KeyPoint> &vKeys1, const std::vector<cv::KeyPoint> &vKeys2, const vector<int> &vMatches12,
     Sophus::SE3f &T21, vector<cv::Point3f> &vP3D, vector<bool> &vbTriangulated)
 {
+    ///当实际情况是平面或纯旋转是H矩阵的恢复效果往往好于F矩阵
     // 1. 准备工作，提取匹配关系及准备RANSAC
     mvKeys1.clear();
     mvKeys2.clear();

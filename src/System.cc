@@ -79,11 +79,13 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
     // Step 2 读取配置文件
     cv::FileStorage fsSettings(strSettingsFile.c_str(), cv::FileStorage::READ);
     // 如果打开失败，就输出错误信息
+    cout << strSettingsFile.c_str()<< endl;
     if(!fsSettings.isOpened())
     {
        cerr << "Failed to open settings file at: " << strSettingsFile << endl;
        exit(-1);
     }
+    cout << strSettingsFile.c_str()<< endl;
 
     // 查看配置文件版本，不同版本有不同处理方法
     cv::FileNode node = fsSettings["File.version"];

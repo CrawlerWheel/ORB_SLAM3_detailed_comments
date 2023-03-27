@@ -176,8 +176,8 @@ protected:
 
     bool mbImuInitialized;
 
-    int mnMapChange;
-    int mnMapChangeNotified;
+    int mnMapChange;///地图改变累加计数
+    int mnMapChangeNotified;///记录mnMapChange的last值   命名应该是个坑！不是id
 
     long unsigned int mnInitKFid;
     long unsigned int mnMaxKFid;

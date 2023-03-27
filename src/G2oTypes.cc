@@ -473,7 +473,10 @@ void EdgeStereo::linearizeOplus()
 
     Eigen::Matrix<double,3,3> proj_jac;
     proj_jac.block<2,3>(0,0) = VPose->estimate().pCamera[cam_idx]->projectJac(Xc);
+    ///双目投影公式： xr = xl -fb/z  因此右目x轴残差关于3D点的雅可比可以分两部分求解
+    /// 第一步直接赋值左目雅可比
     proj_jac.block<1,3>(2,0) = proj_jac.block<1,3>(0,0);
+    ///第二步对3D点Z轴坐标单独求导 -fb/z --> fb/z^2
     proj_jac(2,2) += bf*inv_z2;
 
     _jacobianOplusXi = -proj_jac * Rcw;
@@ -604,9 +607,11 @@ void EdgeInertial::computeError()
     const Eigen::Matrix3d dR = mpInt->GetDeltaRotation(b1).cast<double>();
     const Eigen::Vector3d dV = mpInt->GetDeltaVelocity(b1).cast<double>();
     const Eigen::Vector3d dP = mpInt->GetDeltaPosition(b1).cast<double>();
-
+    /// Rij_measurement.trans() * Riw * Rwj 相当于计算了deltaR的偏差
     const Eigen::Vector3d er = LogSO3(dR.transpose()*VP1->estimate().Rwb.transpose()*VP2->estimate().Rwb);
+    /// Riw * (vj-vi-g*dT) - dV_measurement
     const Eigen::Vector3d ev = VP1->estimate().Rwb.transpose()*(VV2->estimate() - VV1->estimate() - g*dt) - dV;
+    /// Riw * (Pwj - Pwi - vi*dt - 1/2*g*(dt)^2) - dP_ measurement
     const Eigen::Vector3d ep = VP1->estimate().Rwb.transpose()*(VP2->estimate().twb - VP1->estimate().twb
                                                                - VV1->estimate()*dt - g*dt*dt/2) - dP;
 
@@ -631,9 +636,9 @@ void EdgeInertial::linearizeOplus()
     const Eigen::Matrix3d Rbw1 = Rwb1.transpose();     // Ri.t()
     const Eigen::Matrix3d Rwb2 = VP2->estimate().Rwb;  // Rj
 
-    const Eigen::Matrix3d dR = mpInt->GetDeltaRotation(b1).cast<double>();
+    const Eigen::Matrix3d dR = mpInt->GetDeltaRotation(b1).cast<double>();//视为传感器测量值
     const Eigen::Matrix3d eR = dR.transpose()*Rbw1*Rwb2;        // r△Rij
-    const Eigen::Vector3d er = LogSO3(eR);                      // r△φij
+    const Eigen::Vector3d er = LogSO3(eR);                      // r△φij 李群对数映射
     const Eigen::Matrix3d invJr = InverseRightJacobianSO3(er);  // Jr^-1(log(△Rij))
 
     // 就很神奇，_jacobianOplus个数等于边的个数，里面的大小等于观测值维度（也就是残差）× 每个节点待优化值的维度

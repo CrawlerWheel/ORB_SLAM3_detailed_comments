@@ -224,7 +224,7 @@ bool EdgeStereoSE3ProjectXYZ::write(std::ostream& os) const {
     }
   return os.good();
 }
-
+// 雅克比矩阵操作
 void EdgeStereoSE3ProjectXYZ::linearizeOplus() {
   VertexSE3Expmap * vj = static_cast<VertexSE3Expmap *>(_vertices[1]);
   SE3Quat T(vj->estimate());

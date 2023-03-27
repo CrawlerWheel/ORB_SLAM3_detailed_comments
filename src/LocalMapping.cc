@@ -183,6 +183,7 @@ void LocalMapping::Run()
                         if(!mpCurrentKeyFrame->GetMap()->GetIniertialBA2())
                         {
                             // 如果累计时间差小于10s 并且 距离小于2厘米，认为运动幅度太小，不足以初始化IMU，将mbBadImu设置为true
+                            /// ？？？ 这个条件判别还是有点迷
                             if((mTinit<10.f) && (dist<0.02))
                             {
                                 cout << "Not enough motion for initializing. Reseting..." << endl;
@@ -323,7 +324,7 @@ void LocalMapping::Run()
             double timeLocalMap = std::chrono::duration_cast<std::chrono::duration<double,std::milli> >(time_EndLocalMap - time_StartProcessKF).count();
             vdLMTotal_ms.push_back(timeLocalMap);
 #endif
-        }
+        }/// LM 正常处理流程
         else if(Stop() && !mbBadImu) // 当要终止当前线程的时候
         {
             // Safe area to stop
@@ -1083,6 +1084,7 @@ bool LocalMapping::Stop()
 {
     unique_lock<mutex> lock(mMutexStop);
     // 如果当前线程还没有准备停止,但是已经有终止请求了,那么就准备停止当前线程
+    /// 条件一：有终止请求，条件二：没有不让该线程暂停的信号
     if(mbStopRequested && !mbNotStop)
     {
         mbStopped = true;
@@ -1576,6 +1578,7 @@ void LocalMapping::InitializeIMU(float priorG, float priorA, bool bFIBA)
     if (!mpCurrentKeyFrame->GetMap()->isImuInitialized())
     {
         Eigen::Matrix3f Rwg;
+        ///重力在世界坐标系下的方向（带模长）
         Eigen::Vector3f dirG;
         dirG.setZero();
 
@@ -1589,6 +1592,8 @@ void LocalMapping::InitializeIMU(float priorG, float priorA, bool bFIBA)
 
             have_imu_num++;
             // 初始化时关于速度的预积分定义Ri.t()*(s*Vj - s*Vi - Rwg*g*tij)
+            /// DeltaVelocity前再乘以 Ri 相当于与Ri.t()互相抵消， 连减的结果仅剩sV1 - sVn + n*Rwg*g*t
+            /// sV1 - sVn作为小量不考虑（毕竟第一次求，精度差不多就行），这就得到了带多种重力方向速度叠加的向量！
             dirG -= (*itKF)->mPrevKF->GetImuRotation() * (*itKF)->mpImuPreintegrated->GetUpdatedDeltaVelocity();
             // 求取实际的速度，位移/时间
             Eigen::Vector3f _vel = ((*itKF)->GetImuPosition() - (*itKF)->mPrevKF->GetImuPosition())/(*itKF)->mpImuPreintegrated->dT;
@@ -1666,6 +1671,7 @@ void LocalMapping::InitializeIMU(float priorG, float priorA, bool bFIBA)
         // 即使初始化成功后面还会执行这个函数重新初始化
         // 在之前没有初始化成功情况下（此时刚刚初始化成功）对每一帧都标记，后面的kf全部都在tracking里面标记为true
         // 也就是初始化之前的那些关键帧即使有imu信息也不算
+        /// ？？？
         if (!mpAtlas->isImuInitialized())
             for (int i = 0; i < N; i++) {
                 KeyFrame *pKF2 = vpKF[i];
@@ -1742,12 +1748,13 @@ void LocalMapping::InitializeIMU(float priorG, float priorA, bool bFIBA)
             if(pChild->mnBAGlobalForKF!=GBAid)
             {
                 // pChild->GetPose()也是优化前的位姿，Twc也是优化前的位姿
-                // 7.3 因此他们的相对位姿是比较准的，可以用于更新pChild的位姿
+                // 7.3 他们的相对位姿是比较准的，通过两帧的旧位姿求得相对位姿，而后可以用于更新pChild的位姿
                 Sophus::SE3f Tchildc = pChild->GetPose() * Twc;
                 // 使用相对位姿，根据pKF优化后的位姿更新pChild位姿，最后结果都暂时放于mTcwGBA
                 pChild->mTcwGBA = Tchildc * pKF->mTcwGBA;
 
                 // 7.4 使用相同手段更新速度
+                /// Rcor旋转的优化更新量
                 Sophus::SO3f Rcor = pChild->mTcwGBA.so3().inverse() * pChild->GetPose().so3();
                 if(pChild->isVelocitySet()){
                     pChild->mVwbGBA = Rcor * pChild->GetVelocity();

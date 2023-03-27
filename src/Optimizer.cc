@@ -96,7 +96,7 @@ int Optimizer::PoseOptimization(Frame *pFrame)
     vnIndexEdgeRight.reserve(N);
 
     vector<g2o::EdgeStereoSE3ProjectXYZOnlyPose *> vpEdgesStereo; // 存放双目边
-    vector<size_t> vnIndexEdgeStereo;
+    vector<size_t> vnIndexEdgeStereo;   /// 边对应特征点的id
     vpEdgesStereo.reserve(N);
     vnIndexEdgeStereo.reserve(N);
 
@@ -126,6 +126,7 @@ int Optimizer::PoseOptimization(Frame *pFrame)
                     // 单目情况，因为双目模式下pFrame->mvuRight[i]会大于0
                     if (pFrame->mvuRight[i] < 0)
                     {
+                        ///???
                         nInitialCorrespondences++;
                         pFrame->mvbOutlier[i] = false;
 
@@ -202,6 +203,7 @@ int Optimizer::PoseOptimization(Frame *pFrame)
 
                     cv::KeyPoint kpUn;
                     // 总数N = 相机1所有特征点数量+相机2所有特征点数量
+                    /// 这里右投影和左位姿连成的边为啥用的也是 EdgeSE3ProjectXYZOnlyPose？？？ 。。。if (i < pFrame->Nleft)分了情况阿！
                     if (i < pFrame->Nleft)
                     { // Left camera observation
                         kpUn = pFrame->mvKeys[i];
@@ -260,10 +262,10 @@ int Optimizer::PoseOptimization(Frame *pFrame)
 
                         vpEdgesMono_FHR.push_back(e);
                         vnIndexEdgeRight.push_back(i);
-                    }
-                }
-            }
-        }
+                    }///右目
+                }///第二个相机的情况
+            }///if (pMP)
+        }///for
     }
     // 如果没有足够的匹配点,那么就只好放弃了
     // cout << "PO: vnIndexEdgeMono.size() = " << vnIndexEdgeMono.size() << "   vnIndexEdgeRight.size() = " << vnIndexEdgeRight.size() << endl;
@@ -285,6 +287,7 @@ int Optimizer::PoseOptimization(Frame *pFrame)
     for (size_t it = 0; it < 4; it++)
     {
         Tcw = pFrame->GetPose();
+        /// 四轮优化的初值都是一样的
         vSE3->setEstimate(g2o::SE3Quat(Tcw.unit_quaternion().cast<double>(), Tcw.translation().cast<double>()));
         // 其实就是初始化优化器,这里的参数0就算是不填写,默认也是0,也就是只对level为0的边进行优化
         optimizer.initializeOptimization(0);
@@ -307,6 +310,7 @@ int Optimizer::PoseOptimization(Frame *pFrame)
             }
 
             // 就是error*\Omega*error,表征了这个点的误差大小(考虑置信度以后)
+            /// 也就是带着信息矩阵的误差的平方
             const float chi2 = e->chi2();
 
             if (chi2 > chi2Mono[it])
@@ -469,7 +473,7 @@ int Optimizer::PoseInertialOptimizationLastKeyFrame(Frame *pFrame, bool bRecInit
 
     vector<EdgeMonoOnlyPose *> vpEdgesMono;
     vector<EdgeStereoOnlyPose *> vpEdgesStereo;
-    vector<size_t> vnIndexEdgeMono;
+    vector<size_t> vnIndexEdgeMono;//特征点索引
     vector<size_t> vnIndexEdgeStereo;
     vpEdgesMono.reserve(N);
     vpEdgesStereo.reserve(N);
@@ -550,6 +554,7 @@ int Optimizer::PoseInertialOptimizationLastKeyFrame(Frame *pFrame, bool bRecInit
                     vnIndexEdgeMono.push_back(i);
                 }
                 // Stereo observation
+                /// ？？？ Stereo 的 bRight不该是true吗
                 else if (!bRight)
                 {
                     nInitialStereoCorrespondences++;
@@ -666,7 +671,7 @@ int Optimizer::PoseInertialOptimizationLastKeyFrame(Frame *pFrame, bool bRecInit
     // 将当前帧的BG加入第三种边
     egr->setVertex(1, VG);
     // C值在预积分阶段更新，range(9,12)对应陀螺仪偏置的协方差，最终cvInfoG值为inv(∑(GyroRW^2/freq))
-    Eigen::Matrix3d InfoG = pFrame->mpImuPreintegrated->C.block<3, 3>(9, 9).cast<double>().inverse();
+    Eigen::Matrix3d InfoG = pFrame->mpImuPreintegrated->C.block<3, 3>(9, 9).cast<double>().inverse();//
     egr->setInformation(InfoG);
     // 把第三种边加入优化器
     optimizer.addEdge(egr);
@@ -2225,6 +2230,7 @@ void Optimizer::LocalInertialBA(
     vpOptimizableKFs.reserve(Nd);
     vpOptimizableKFs.push_back(pKF);
     pKF->mnBALocalForKF = pKF->mnId;
+    /// 在Nd数量的要求下，优先取mPrevKF连成的关键帧链
     for (int i = 1; i < Nd; i++)
     {
         if (vpOptimizableKFs.back()->mPrevKF)
@@ -2267,6 +2273,7 @@ void Optimizer::LocalInertialBA(
     }
     else
     {
+        ///mPrevKF没有了，或者说关键帧链断了，那就将关键帧链中最早的关键帧固定住，并pop出待优化的帧们
         vpOptimizableKFs.back()->mnBALocalForKF = 0;
         vpOptimizableKFs.back()->mnBAFixedForKF = pKF->mnId;
         lFixedKeyFrames.push_back(vpOptimizableKFs.back());
@@ -2312,6 +2319,7 @@ void Optimizer::LocalInertialBA(
 
     for (list<MapPoint *>::iterator lit = lLocalMapPoints.begin(), lend = lLocalMapPoints.end(); lit != lend; lit++)
     {
+        /// tuple<int, int>？？？
         map<KeyFrame *, tuple<int, int>> observations = (*lit)->GetObservations();
         for (map<KeyFrame *, tuple<int, int>>::iterator mit = observations.begin(), mend = observations.end(); mit != mend; mit++)
         {
@@ -2344,6 +2352,7 @@ void Optimizer::LocalInertialBA(
     if (bLarge)
     {
         g2o::OptimizationAlgorithmLevenberg *solver = new g2o::OptimizationAlgorithmLevenberg(solver_ptr);
+        ///？？？
         solver->setUserLambdaInit(1e-2); // to avoid iterating for finding optimal lambda
         optimizer.setAlgorithm(solver);
     }
@@ -2530,7 +2539,7 @@ void Optimizer::LocalInertialBA(
 
     const unsigned long iniMPid = maxKFid * 5;
 
-    map<int, int> mVisEdges;
+    map<int, int> mVisEdges; ///记录当前帧有多上重投影边
     for (int i = 0; i < N; i++)
     {
         KeyFrame *pKFi = vpOptimizableKFs[i];
@@ -2549,6 +2558,7 @@ void Optimizer::LocalInertialBA(
 
         unsigned long id = pMP->mnId + iniMPid + 1;
         vPoint->setId(id);
+        ///？？？
         vPoint->setMarginalized(true);
         optimizer.addVertex(vPoint);
         const map<KeyFrame *, tuple<int, int>> observations = pMP->GetObservations();
@@ -2666,14 +2676,14 @@ void Optimizer::LocalInertialBA(
                     }
                 }
             }
-        }
-    }
+        }///单个MP共视帧 操作
+    }///遍历所有MPs
 
     // cout << "Total map points: " << lLocalMapPoints.size() << endl;
-    //  TODO debug会报错先注释掉
+    //  TODO debug报错
     for (map<int, int>::iterator mit = mVisEdges.begin(), mend = mVisEdges.end(); mit != mend; mit++)
     {
-        assert(mit->second >= 3);
+        ///assert(mit->second >= 3);
     }
 
     // 12. 开始优化

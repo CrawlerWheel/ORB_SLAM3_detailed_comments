@@ -119,9 +119,10 @@ public:
 
 public:
     // Sophus/Eigen implementation
+    //IMU 与 相机外参
     Sophus::SE3<float> mTcb;
     Sophus::SE3<float> mTbc;
-    Eigen::DiagonalMatrix<float,6> Cov, CovWalk;
+    Eigen::DiagonalMatrix<float,6> Cov, CovWalk;//噪声和随机游走
     bool mbIsSet;
 };
 
@@ -208,17 +209,17 @@ public:
     }
 
 public:
-    float dT;
-    Eigen::Matrix<float,15,15> C;
-    Eigen::Matrix<float,15,15> Info;
-    Eigen::DiagonalMatrix<float,6> Nga, NgaWalk;
+    float dT;//时间
+    Eigen::Matrix<float,15,15> C;//协方差
+    Eigen::Matrix<float,15,15> Info;//信息矩阵，协方差的逆
+    Eigen::DiagonalMatrix<float,6> Nga, NgaWalk;//标定信息中的协方差
 
     // Values for the original bias (when integration was computed)
     Bias b;
-    Eigen::Matrix3f dR;
-    Eigen::Vector3f dV, dP;
-    Eigen::Matrix3f JRg, JVg, JVa, JPg, JPa;
-    Eigen::Vector3f avgA, avgW;
+    Eigen::Matrix3f dR;//旋转预积分增量
+    Eigen::Vector3f dV, dP;//速度、位置预积分增量
+    Eigen::Matrix3f JRg, JVg, JVa, JPg, JPa;//预积分关于两种偏置的雅可比
+    Eigen::Vector3f avgA, avgW;//平均加速度、平均角速度
 
 
 private:
@@ -226,7 +227,7 @@ private:
     Bias bu;    //更新后的零偏
     // Dif between original and updated bias
     // This is used to compute the updated values of the preintegration
-    Eigen::Matrix<float,6,1> db;
+    Eigen::Matrix<float,6,1> db;//bias更新量
 
     struct integrable
     {

@@ -139,6 +139,7 @@ IntegratedRotation::IntegratedRotation(const Eigen::Vector3f &angVel, const Bias
     // 角度转成叉积的矩阵形式
     Eigen::Matrix3f W = Sophus::SO3f::hat(v);
     // eps = 1e-4 是一个小量，根据罗德里格斯公式求极限，后面的高阶小量忽略掉得到此式
+    /// rightJ是什么？？？
     if (d < eps)
     {
         deltaR = Eigen::Matrix3f::Identity() + W;
@@ -146,8 +147,8 @@ IntegratedRotation::IntegratedRotation(const Eigen::Vector3f &angVel, const Bias
     }
     else
     {
-        deltaR = Eigen::Matrix3f::Identity() + W * sin(d) / d + W * W * (1.0f - cos(d)) / d2;
-        rightJ = Eigen::Matrix3f::Identity() - W * (1.0f - cos(d)) / d2 + W * W * (d - sin(d)) / (d2 * d);
+        deltaR = Eigen::Matrix3f::Identity() + W * sin(d) / d + W * W * (1.0f - cos(d)) / d2;//罗德里格斯 但不知道为啥开头没有乘cos(theta)
+        rightJ = Eigen::Matrix3f::Identity() - W * (1.0f - cos(d)) / d2 + W * W * (d - sin(d)) / (d2 * d);//旋转所对应雅可比的计算公式
     }
 }
 
@@ -231,6 +232,7 @@ void Preintegrated::Initialize(const Bias &b_)
 void Preintegrated::Reintegrate()
 {
     std::unique_lock<std::mutex> lock(mMutex);
+    ///拷贝的意义是什么，怎么拷贝完了有用了同样的数据？？？
     const std::vector<integrable> aux = mvMeasurements;
     Initialize(bu);
     for (size_t i = 0; i < aux.size(); i++)
@@ -267,7 +269,7 @@ void Preintegrated::IntegrateNewMeasurement(const Eigen::Vector3f &acceleration,
     acc << acceleration(0) - b.bax, acceleration(1) - b.bay, acceleration(2) - b.baz;
     accW << angVel(0) - b.bwx, angVel(1) - b.bwy, angVel(2) - b.bwz;
 
-    // 记录平均加速度和角速度
+    /// 记录平均加速度和角速度 ？？？加速度更新为啥要乘以旋转
     avgA = (dT * avgA + dR * acc * dt) / (dT + dt);
     avgW = (dT * avgW + accW * dt) / (dT + dt);
 
@@ -280,6 +282,7 @@ void Preintegrated::IntegrateNewMeasurement(const Eigen::Vector3f &acceleration,
     // 根据η_ij = A * η_i,j-1 + B_j-1 * η_j-1中的Ａ矩阵和Ｂ矩阵对速度和位移进行更新
     Eigen::Matrix<float, 3, 3> Wacc = Sophus::SO3f::hat(acc);
 
+    ///？？？A.block<3, 3>(0, 0)不要填充马 下面还有补充
     A.block<3, 3>(3, 0) = -dR * dt * Wacc;
     A.block<3, 3>(6, 0) = -0.5f * dR * dt * dt * Wacc;
     A.block<3, 3>(6, 3) = Eigen::DiagonalMatrix<float, 3>(dt, dt, dt);
@@ -289,6 +292,7 @@ void Preintegrated::IntegrateNewMeasurement(const Eigen::Vector3f &acceleration,
     // Update position and velocity jacobians wrt bias correction
     // 因为随着时间推移，不可能每次都重新计算雅克比矩阵，所以需要做J(k+1) = j(k) + (~)这类事，分解方式与AB矩阵相同
     // 论文作者对forster论文公式的基础上做了变形，然后递归更新，参见 https://github.com/UZ-SLAMLab/ORB_SLAM3/issues/212
+    ///？？？ 对三种状态量关于两种偏置的雅可比矩阵 进行更新
     JPa = JPa + JVa * dt - 0.5f * dR * dt * dt;
     JPg = JPg + JVg * dt - 0.5f * dR * dt * dt * Wacc * JRg;
     JVa = JVa - dR * dt;
@@ -310,12 +314,14 @@ void Preintegrated::IntegrateNewMeasurement(const Eigen::Vector3f &acceleration,
     // Step 3.更新协方差，frost经典预积分论文的第63个公式，推导了噪声（ηa, ηg）对dR dV dP 的影响
     C.block<9, 9>(0, 0) = A * C.block<9, 9>(0, 0) * A.transpose() + B * Nga * B.transpose();  // B矩阵为9*6矩阵 Nga 6*6对角矩阵，3个陀螺仪噪声的平方，3个加速度计噪声的平方
     // 这一部分最开始是0矩阵，随着积分次数增加，每次都加上随机游走，偏置的信息矩阵
+    ///？？？ 后六维是关于偏置的协方差矩阵，注意两类白噪声是没有协方差矩阵的
     C.block<6, 6>(9, 9) += NgaWalk;
 
     // Update rotation jacobian wrt bias correction
     // 计算偏置的雅克比矩阵，r对bg的导数，∂ΔRij/∂bg = (ΔRjj-1) * ∂ΔRij-1/∂bg - Jr(j-1)*t
     // 论文作者对forster论文公式的基础上做了变形，然后递归更新，参见 https://github.com/UZ-SLAMLab/ORB_SLAM3/issues/212
     // ? 为什么先更新JPa、JPg、JVa、JVg最后更新JRg? 答：这里必须先更新dRi才能更新到这个值，但是为什么JPg和JVg依赖的上一个JRg值进行更新的？
+    ///？？？ 最后更新 旋转状态量关于陀螺仪偏置的雅可比
     JRg = dRi.deltaR.transpose() * JRg - dRi.rightJ * dt;
 
     // Total integrated time
@@ -335,6 +341,7 @@ void Preintegrated::MergePrevious(Preintegrated *pPrev)
     std::unique_lock<std::mutex> lock1(mMutex);
     std::unique_lock<std::mutex> lock2(pPrev->mMutex);
     Bias bav;
+    /// 拷贝的意义是什么，怎么拷贝完了有用了同样的数据？？？
     bav.bwx = bu.bwx;
     bav.bwy = bu.bwy;
     bav.bwz = bu.bwz;
