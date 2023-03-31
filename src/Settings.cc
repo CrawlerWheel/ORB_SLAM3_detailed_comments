@@ -542,7 +542,8 @@ void Settings::readLoadAndSave(cv::FileStorage &fSettings)
 void Settings::readOtherParameters(cv::FileStorage &fSettings)
 {
     bool found;
-
+    thSmoothVelocity_ = readParameter<float>(fSettings, "ThSmoothVelocity", found, false);
+    thSmoothTrajectory_ = readParameter<float>(fSettings, "ThSmoothTrajectory", found, false);
     thFarPoints_ = readParameter<float>(fSettings, "System.thFarPoints", found, false);
 }
 

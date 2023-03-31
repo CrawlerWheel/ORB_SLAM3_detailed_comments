@@ -81,6 +81,11 @@ public:
     void SetStepByStep(bool bSet);
     bool GetStepByStep();
 
+    /// modify
+    float getThDepthm(){
+        return mThDepth;
+    }
+
     // Load new settings
     // The focal lenght should be similar or scale prediction will fail when projecting points
     void ChangeCalibration(const string &strSettingPath);
@@ -133,6 +138,13 @@ public:
 
     // Input sensor
     int mSensor;
+
+    /// modify 轨迹平滑约束平滑系数
+    float mfCurrentSmoothK;
+    float mfCurrentSmoothVelo;
+
+    float mThSmoothVelocity;
+    float mThSmoothTrajectory;
 
     // Current Frame
     Frame mCurrentFrame;

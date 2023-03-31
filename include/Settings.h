@@ -116,6 +116,8 @@ namespace ORB_SLAM3 {
         std::string atlasSaveFile() {return sSaveto_;}
 
         float thFarPoints() {return thFarPoints_;}
+        float thSmoothVelocity(){return thSmoothVelocity_;}
+        float thSmoothTrajectory(){return thSmoothTrajectory_;}
 
         cv::Mat M1l() {return M1l_;}
         cv::Mat M2l() {return M2l_;}
@@ -227,7 +229,8 @@ namespace ORB_SLAM3 {
          * Other stuff
          */
         float thFarPoints_;
-
+        float thSmoothVelocity_;
+        float thSmoothTrajectory_;
     };
 };
 

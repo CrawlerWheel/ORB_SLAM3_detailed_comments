@@ -122,6 +122,10 @@ Tracking::Tracking(System *pSys, ORBVocabulary* pVoc, FrameDrawer *pFrameDrawer,
     mbInitWith3KFs = false;
     mnNumDataset = 0;
 
+    /// modify 平滑系数初始化
+    mfCurrentSmoothVelo = 0;
+    mfCurrentSmoothK = 0;
+
     // 遍历下地图中的相机，然后打印出来了
     vector<GeometricCamera*> vpCams = mpAtlas->GetAllCameras();
     std::cout << "There are " << vpCams.size() << " cameras in the atlas" << std::endl;
@@ -2730,13 +2734,14 @@ void Tracking::StereoInitialization()
 
         // Create MapPoints and asscoiate to KeyFrame
         if(!mpCamera2){
-            /// RGBD相机
             // 为每个特征点构造MapPoint
             for(int i=0; i<mCurrentFrame.N;i++)
             {
                 // 只有具有正深度的点才会被构造地图点
                 float z = mCurrentFrame.mvDepth[i];
-                if(z>0)
+                /// modify
+                //if(z>0)
+                if(z>0 && z<=mThDepth)
                 {
                     // 通过反投影得到该特征点的世界坐标系下3D坐标
                     Eigen::Vector3f x3D;
@@ -2756,12 +2761,21 @@ void Tracking::StereoInitialization()
                 }
             }
         } else{
-            /// STEREO
+            /// fash
             for(int i = 0; i < mCurrentFrame.Nleft; i++){
                 int rightIndex = mCurrentFrame.mvLeftToRightMatch[i];
+
                 if(rightIndex != -1){
                     Eigen::Vector3f x3D = mCurrentFrame.mvStereo3Dpoints[i];
 
+                    /// modify
+                    float depth = mCurrentFrame.mvDepth[i];
+                    cout <<"point" << depth <<endl;
+                    if(depth > mThDepth){
+                        cout << "reject point" << depth << endl;
+                        continue;
+                    }
+                    cout <<"mThDepth" << mThDepth <<endl;
                     MapPoint* pNewMP = new MapPoint(x3D, pKFini, mpAtlas->GetCurrentMap());
 
                     pNewMP->AddObservation(pKFini,i);
@@ -2779,7 +2793,7 @@ void Tracking::StereoInitialization()
                 }
             }
         }
-
+        cout << "test remote clionnnnn" << endl;
         Verbose::PrintMess("New Map created with " + to_string(mpAtlas->MapPointsInMap()) + " points", Verbose::VERBOSITY_QUIET);
 
         //cout << "Active map: " << mpAtlas->GetCurrentMap()->GetId() << endl;
@@ -3711,12 +3725,15 @@ bool Tracking::NeedNewKeyFrame()
     // 双目或RGBD情况下：跟踪到的地图点中近点太少 同时 没有跟踪到的三维点太多，可以插入关键帧了
     // 单目时，为false
     bool bNeedToInsertClose;
-    bNeedToInsertClose = (nTrackedClose<100) && (nNonTrackedClose>70);
+    //bNeedToInsertClose = (nTrackedClose<100) && (nNonTrackedClose>70);
+    /// modify
+    bNeedToInsertClose = (nTrackedClose<120) && (nNonTrackedClose>50);
 
     // Step 7：决策是否需要插入关键帧
     // Thresholds
     // Step 7.1：设定比例阈值，当前帧和参考关键帧跟踪到点的比例，比例越大，越倾向于增加关键帧
-    float thRefRatio = 0.75f;
+    //float thRefRatio = 0.75f;
+    float thRefRatio = 0.9f;
     // 关键帧只有一帧，那么插入关键帧的阈值设置的低一点，插入频率较低
     if(nKFs<2)
         thRefRatio = 0.4f;
@@ -3755,8 +3772,9 @@ bool Tracking::NeedNewKeyFrame()
     const bool c1c = mSensor!=System::MONOCULAR && mSensor!=System::IMU_MONOCULAR && mSensor!=System::IMU_STEREO && mSensor!=System::IMU_RGBD && (mnMatchesInliers<nRefMatches*0.25 || bNeedToInsertClose) ;
     // Condition 2: Few tracked points compared to reference keyframe. Lots of visual odometry compared to map matches.
     // Step 7.5：和参考帧相比当前跟踪到的点太少 或者满足bNeedToInsertClose；同时跟踪到的内点还不能太少
-    const bool c2 = (((mnMatchesInliers<nRefMatches*thRefRatio || bNeedToInsertClose)) && mnMatchesInliers>15);
-
+    //const bool c2 = (((mnMatchesInliers<nRefMatches*thRefRatio || bNeedToInsertClose)) && mnMatchesInliers>15);
+    const bool c2 = (((mnMatchesInliers<nRefMatches*thRefRatio || bNeedToInsertClose)));
+    //cout << "mpcamera" << thRefRatio <<endl;
     //std::cout << "NeedNewKF: c1a=" << c1a << "; c1b=" << c1b << "; c1c=" << c1c << "; c2=" << c2 << std::endl;
     // Temporal condition for Inertial cases
     // 新增的条件c3：单目/双目+IMU模式下，并且IMU完成了初始化（隐藏条件），当前帧和上一关键帧之间时间超过0.5秒，则c3=true
@@ -3770,7 +3788,9 @@ bool Tracking::NeedNewKeyFrame()
         }
         else if (mSensor==System::IMU_STEREO || mSensor == System::IMU_RGBD)
         {
-            if ((mCurrentFrame.mTimeStamp-mpLastKeyFrame->mTimeStamp)>=0.5)
+            /// modify
+            //if ((mCurrentFrame.mTimeStamp-mpLastKeyFrame->mTimeStamp)>=0.5)
+            if ((mCurrentFrame.mTimeStamp-mpLastKeyFrame->mTimeStamp)>=0.4)
                 c3 = true;
         }
     }
@@ -3782,9 +3802,57 @@ bool Tracking::NeedNewKeyFrame()
     else
         c4=false;
 
+    /// modify 轨迹平滑约束
+    bool c5 = true;
+    KeyFrame* pRefFrame = mCurrentFrame.mpReferenceKF;
+    if(pRefFrame && mpAtlas->GetCurrentMap()->GetIniertialBA2()){
+        Eigen::Vector3f refFrameCameraCenter =  pRefFrame->GetCameraCenter();//获取当前共视关键帧的父关键帧光心
+        Eigen::Vector3f currentCameraCenter = mCurrentFrame.GetCameraCenter();//获取当前共视关键帧光心
+        float dz = refFrameCameraCenter[2] - currentCameraCenter[2];
+        float dx = refFrameCameraCenter[0] - currentCameraCenter[0];
+        float dy = refFrameCameraCenter[1] - currentCameraCenter[1];
+        float d_move = sqrt(dx*dx + dy*dy);
+
+        float target_d_z = fabs(fabs(dz) - fabs(d_move)*mfCurrentSmoothK)/sqrt(1+mfCurrentSmoothK*mfCurrentSmoothK);
+        //cout << "沿x轴位移：" << dx << endl;
+        //cout << "当前帧："<< refFrameCameraCenter[0]<< " " << refFrameCameraCenter[1] << " " << refFrameCameraCenter[2] << endl;
+        //cout << "当前帧平滑情况： " << target_d_z << endl;///平滑阈值
+        if(d_move>0.8){
+            //位移过长，直接判定为真
+            c5 = true;
+        }
+        else if(target_d_z > mThSmoothTrajectory){///平滑阈值
+            if(bNeedToInsertClose)
+                c5 = true;
+            else{
+                c5 = false;
+                //cout << "已因平滑性拒绝一帧" << endl;
+            }
+        }
+    }
+
+    /// modify 当前地图完成第二次初始化后，速度平滑性约束
+    bool c6 = true;
+    if(mpAtlas->GetCurrentMap()->GetIniertialBA2() && mCurrentFrame.HasVelocity() && mfCurrentSmoothVelo!=0){
+        float vel_g = mCurrentFrame.GetVelocity()[2];
+        float target_velo = fabs(vel_g-mfCurrentSmoothVelo)/sqrt(1+mfCurrentSmoothVelo*mfCurrentSmoothVelo);
+        //cout << "速度平滑目标值" << target_velo << endl;
+        if(target_velo > mThSmoothVelocity){
+            if(bNeedToInsertClose)
+                c6 = true;
+            else{
+                c6 = false;
+                //cout << "已因速度平滑性拒绝一帧" << endl;
+            }
+        }
+    }
+
     // 相比ORB-SLAM2多了c3,c4
-    if(((c1a||c1b||c1c) && c2)||c3 ||c4)
+    /// modify
+    //cout << "c1a||c1b||c1c) && c2 && c6)||c3 " << c1a <<" "<< c1b <<" "<< c1c <<" "<< c2 <<" "<< c6 <<" " << c3 << endl;
+    if(((c1a||c1b||c1c) && c2 && c5 && c6)|| c3 ||c4)
     {
+        //cout<< "accept with c6: " << c6 << endl;
         // If the mapping accepts keyframes, insert keyframe.
         // Otherwise send a signal to interrupt BA
         // Step 7.6：local mapping空闲时或者正在做imu初始化时可以直接插入，不空闲的时候要根据情况插入
@@ -3818,9 +3886,11 @@ bool Tracking::NeedNewKeyFrame()
             }
         }
     }
-    else
+    else{
         // 不满足上面的条件,自然不能插入关键帧
         return false;
+    }
+
 }
 
 /**
@@ -3902,6 +3972,7 @@ void Tracking::CreateNewKeyFrame()
             // Step 3.3：从中找出不是地图点的生成临时地图点 
             // 处理的近点的个数
             int nPoints = 0;
+            //cout << "vDepthIdx.size()" << vDepthIdx.size() <<endl;
             for(size_t j=0; j<vDepthIdx.size();j++)
             {
                 int i = vDepthIdx[j].second;
@@ -3961,6 +4032,7 @@ void Tracking::CreateNewKeyFrame()
                 // 2、nPoints已经超过100个点，说明距离比较远了，可能不准确，停掉退出
                 if(vDepthIdx[j].first>mThDepth && nPoints>maxPoint)
                 {
+                    //cout<< "creating new FK" << vDepthIdx[j].first << endl;
                     break;
                 }
             }
@@ -4139,9 +4211,11 @@ void Tracking::UpdateLocalPoints()
  */
 void Tracking::UpdateLocalKeyFrames()
 {
+    map<KeyFrame*,int> keyframeCounter;
+    long unsigned int refKFId = 0;
     // Each map point vote for the keyframes in which it has been observed
     // Step 1：遍历当前帧的地图点，记录所有能观测到当前帧地图点的关键帧
-    map<KeyFrame*,int> keyframeCounter;
+    //cout << "test _ 11" << endl;
     // 如果IMU未初始化 或者 刚刚完成重定位
     if(!mpAtlas->isImuInitialized() || (mCurrentFrame.mnId<mnLastRelocFrameId+2))
     {
@@ -4171,6 +4245,8 @@ void Tracking::UpdateLocalKeyFrames()
     }
     else
     {
+        /// modify 记录上一帧参考的最新关键帧的id
+        refKFId = mLastFrame.mpReferenceKF->mnId;
         // ?为什么IMU初始化后用mLastFrame？mLastFrame存储的是上一帧跟踪成功后帧数据。
         for(int i=0; i<mLastFrame.N; i++)
         {
@@ -4183,8 +4259,17 @@ void Tracking::UpdateLocalKeyFrames()
                 if(!pMP->isBad())
                 {
                     const map<KeyFrame*,tuple<int,int>> observations = pMP->GetObservations();
-                    for(map<KeyFrame*,tuple<int,int>>::const_iterator it=observations.begin(), itend=observations.end(); it!=itend; it++)
+                    for(map<KeyFrame*,tuple<int,int>>::const_iterator it=observations.begin(), itend=observations.end(); it!=itend; it++) {
+                        //cout << "test _ 12" << endl;
+                        /// modify 发现因为深度限制不彻底，导致大量久远的关键帧因为远点共视觉而被纳入一级共视
+                        long unsigned int dist_id = refKFId - it->first->mnId;
+                        if(dist_id > 40){
+                            continue;
+                        }
+                        //cout << "test _ 13" << endl;
+                        /// end modify
                         keyframeCounter[it->first]++;
+                    }
                 }
                 else
                 {
@@ -4194,7 +4279,7 @@ void Tracking::UpdateLocalKeyFrames()
             }
         }
     }
-
+    //cout << "test _ 2" << endl;
     // 存储具有最多观测次数（max）的关键帧
     int max=0;
     KeyFrame* pKFmax= static_cast<KeyFrame*>(NULL);
@@ -4207,6 +4292,13 @@ void Tracking::UpdateLocalKeyFrames()
 
     // All keyframes that observe a map point are included in the local map. Also check which keyframe shares most points
     // Step 2.1 类型1：能观测到当前帧地图点的关键帧作为局部关键帧 （将邻居拉拢入伙）（一级共视关键帧）
+
+    /// modify 速度平滑约束平滑系数
+    float velo_g = 0;
+    int numForSmoothVelo = 0;
+    float d_z = 0;
+    int numForSmoothZ = 0;
+    //cout << "test _ 3" << endl;
     for(map<KeyFrame*,int>::const_iterator it=keyframeCounter.begin(), itEnd=keyframeCounter.end(); it!=itEnd; it++)
     {
         KeyFrame* pKF = it->first;
@@ -4227,6 +4319,57 @@ void Tracking::UpdateLocalKeyFrames()
         // 用该关键帧的成员变量mnTrackReferenceForFrame 记录当前帧的id
         // 表示它已经是当前帧的局部关键帧了，可以防止重复添加局部关键帧
         pKF->mnTrackReferenceForFrame = mCurrentFrame.mnId;
+
+        /// modify
+        //cout << "test _ 4" << endl;
+        //cout << "test:  " << refKFId - pKF->mnId << endl;
+        if((refKFId - pKF->mnId) < 20 && mpAtlas->GetCurrentMap()->GetIniertialBA2()){
+            ///MODIFY 计算平滑指数
+            KeyFrame* pParent = pKF->GetParent();
+            if(pParent && numForSmoothZ<15){
+                Eigen::Vector3f parentCameraCenter =  pParent->GetCameraCenter();//获取当前共视关键帧的父关键帧光心
+                Eigen::Vector3f kfCameraCenter = pKF->GetCameraCenter();//获取当前共视关键帧光心 XYZ
+                //cout << "parent" << parentCameraCenter[0] << " " << parentCameraCenter[1] << " " << parentCameraCenter[2] << endl;
+                //cout << "child" << kfCameraCenter[0] << " " << kfCameraCenter[1] << " " << kfCameraCenter[2] << endl;
+                float dz = parentCameraCenter[2] - kfCameraCenter[2];
+                float dx = parentCameraCenter[0] - kfCameraCenter[0];
+                float dy = parentCameraCenter[1] - kfCameraCenter[1];
+                float d_move = sqrt(dx*dx + dy*dy);
+                d_z += fabs(dz/d_move);
+                numForSmoothZ++;
+            }
+            ///
+            if(pKF->isVelocitySet() && numForSmoothVelo<15){
+                Eigen::Vector3f vel = pKF->GetVelocity();
+                velo_g += pKF->GetVelocity()[2];
+                //cout << "xiangguanzhensudu: " << vel[0] <<"  "<< vel[1] << "  "<< vel[2] << endl;
+                numForSmoothVelo++;
+            }
+        }
+
+    }
+    /// modify
+    if(mpAtlas->GetCurrentMap()->GetIniertialBA2()){
+        KeyFrame* pKF = mCurrentFrame.mpLastKeyFrame;
+        while(numForSmoothVelo < 15 && pKF){
+            if(!pKF->isBad() && pKF->mnTrackReferenceForFrame!=mCurrentFrame.mnId){
+                if(pKF->isVelocitySet()){
+                    Eigen::Vector3f vel = pKF->GetVelocity();
+                    velo_g += pKF->GetVelocity()[2];
+                    numForSmoothVelo++;
+                }
+            }
+            pKF = pKF -> mPrevKF;
+        }
+        if(numForSmoothVelo >= 15){
+            ///一级共视充足
+            mfCurrentSmoothVelo = velo_g/static_cast<float>(numForSmoothVelo);
+            //cout << "当前一级共视系数" << mfCurrentSmoothVelo <<"canyude帧数： " << numForSmoothVelo << endl;
+        }
+        if(numForSmoothZ>10){
+            mfCurrentSmoothK = d_z/static_cast<float>(numForSmoothZ);
+            //cout << "更新平滑指数k：" << mfCurrentSmoothK << "canyude帧数：" <<  numForSmoothZ << endl;
+        }
     }
 
     // Include also some not-already-included keyframes that are neighbors to already-included keyframes
@@ -4315,6 +4458,7 @@ void Tracking::UpdateLocalKeyFrames()
         mpReferenceKF = pKFmax;
         mCurrentFrame.mpReferenceKF = mpReferenceKF;
     }
+
 }
 
 /**

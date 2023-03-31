@@ -792,12 +792,16 @@ void LocalMapping::CreateNewMapPoints()
 
             //Check triangulation in front of cameras
             // Step 5.7：检测生成的3D点是否在相机前方,不在的话就放弃这个点
+            float depth = mpTracker->getThDepthm();
             float z1 = Rcw1.row(2).dot(x3D) + tcw1(2);
-            if(z1<=0)
+            /// modify
+            //if(z1<=0)
+            if(z1<=0 || z1>=depth)
                 continue;
 
             float z2 = Rcw2.row(2).dot(x3D) + tcw2(2);
-            if(z2<=0)
+            //if(z2<=0)
+            if(z2<=0 || z2>=depth)
                 continue;
 
             //Check reprojection error in first keyframe

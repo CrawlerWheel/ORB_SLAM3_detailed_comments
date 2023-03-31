@@ -280,7 +280,7 @@ void Map::ApplyScaledRotation(const Sophus::SE3f &T, const float s, const bool b
     /// 初始化阶段，y视为重力坐标系， w视为纯视觉的世界坐标系
     Sophus::SE3f Tyw = T;///重力方向位姿调整的位移部分应该是0
     Eigen::Matrix3f Ryw = Tyw.rotationMatrix();
-    Eigen::Vector3f tyw = Tyw.translation();
+    Eigen::Vector3f tyw = Tyw.translation();/// 0
 
     for (set<KeyFrame *>::iterator sit = mspKeyFrames.begin(); sit != mspKeyFrames.end(); sit++)
     {

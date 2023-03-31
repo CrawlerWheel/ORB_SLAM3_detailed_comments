@@ -79,18 +79,19 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
     // Step 2 读取配置文件
     cv::FileStorage fsSettings(strSettingsFile.c_str(), cv::FileStorage::READ);
     // 如果打开失败，就输出错误信息
-    cout << strSettingsFile.c_str()<< endl;
+    //cout << strSettingsFile.c_str()<< endl;
     if(!fsSettings.isOpened())
     {
        cerr << "Failed to open settings file at: " << strSettingsFile << endl;
        exit(-1);
     }
-    cout << strSettingsFile.c_str()<< endl;
+    //cout << strSettingsFile.c_str()<< endl;
 
     // 查看配置文件版本，不同版本有不同处理方法
     cv::FileNode node = fsSettings["File.version"];
     if(!node.empty() && node.isString() && node.string() == "1.0")
     {
+        cout << "setting here!!!!!!" << endl;
         settings_ = new Settings(strSettingsFile,mSensor);
 
         // 保存及加载地图的名字
@@ -218,6 +219,17 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
     mpTracker = new Tracking(this, mpVocabulary, mpFrameDrawer, mpMapDrawer,
                              mpAtlas, mpKeyFrameDatabase, strSettingsFile, mSensor, settings_, strSequence);
 
+    if(settings_){
+        mpTracker->mThSmoothVelocity = settings_->thSmoothVelocity();
+        mpTracker->mThSmoothTrajectory = settings_->thSmoothTrajectory();
+    }
+    else{
+        cout << "load here " << endl;
+        mpTracker->mThSmoothVelocity = fsSettings["ThSmoothVelocity"];
+        mpTracker->mThSmoothTrajectory = fsSettings["ThSmoothTrajectory"];
+        cout << " ThSmoothVelocity mThSmoothTrajectory " << mpTracker->mThSmoothVelocity << " " << mpTracker->mThSmoothTrajectory << endl;
+    }
+
     //Initialize the Local Mapping thread and launch
     //创建并开启local mapping线程
     mpLocalMapper = new LocalMapping(this, mpAtlas, mSensor==MONOCULAR || mSensor==IMU_MONOCULAR,
@@ -230,6 +242,7 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
         mpLocalMapper->mThFarPoints = settings_->thFarPoints();
     else
         mpLocalMapper->mThFarPoints = fsSettings["thFarPoints"];
+    cout << "---------thFarPoints ------------" << mpLocalMapper->mThFarPoints << endl;
     // ? 这里有个疑问,C++中浮点型跟0比较是否用精确?
     if(mpLocalMapper->mThFarPoints!=0)
     {
