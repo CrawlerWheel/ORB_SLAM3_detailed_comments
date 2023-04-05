@@ -1580,7 +1580,7 @@ Sophus::SE3f Tracking::GrabImageStereo(const cv::Mat &imRectLeft, const cv::Mat 
             mpCamera);				// 相机模型
     else if(mSensor == System::STEREO && mpCamera2)
         mCurrentFrame = Frame(mImGray,imGrayRight,timestamp,mpORBextractorLeft,mpORBextractorRight,mpORBVocabulary,mK,mDistCoef,mbf,mThDepth,mpCamera,mpCamera2,mTlr);
-    else if(mSensor == System::IMU_STEREO && !mpCamera2)
+    else if(mSensor == System::IMU_STEREO && !mpCamera2)///正常的Stereo_Inertial就是走了这个逻辑，并不存在相机2！
         mCurrentFrame = Frame(mImGray,imGrayRight,timestamp,mpORBextractorLeft,mpORBextractorRight,mpORBVocabulary,mK,mDistCoef,mbf,mThDepth,mpCamera,&mLastFrame,*mpImuCalib);
     else if(mSensor == System::IMU_STEREO && mpCamera2)
         mCurrentFrame = Frame(mImGray,imGrayRight,timestamp,mpORBextractorLeft,mpORBextractorRight,mpORBVocabulary,mK,mDistCoef,mbf,mThDepth,mpCamera,mpCamera2,mTlr,&mLastFrame,*mpImuCalib);
@@ -2770,12 +2770,12 @@ void Tracking::StereoInitialization()
 
                     /// modify
                     float depth = mCurrentFrame.mvDepth[i];
-                    cout <<"point" << depth <<endl;
+                    //cout <<"point" << depth <<endl;
                     if(depth > mThDepth){
                         cout << "reject point" << depth << endl;
                         continue;
                     }
-                    cout <<"mThDepth" << mThDepth <<endl;
+                    //cout <<"mThDepth" << mThDepth <<endl;
                     MapPoint* pNewMP = new MapPoint(x3D, pKFini, mpAtlas->GetCurrentMap());
 
                     pNewMP->AddObservation(pKFini,i);
@@ -3733,7 +3733,7 @@ bool Tracking::NeedNewKeyFrame()
     // Thresholds
     // Step 7.1：设定比例阈值，当前帧和参考关键帧跟踪到点的比例，比例越大，越倾向于增加关键帧
     //float thRefRatio = 0.75f;
-    float thRefRatio = 0.9f;
+    float thRefRatio = 0.85f;
     // 关键帧只有一帧，那么插入关键帧的阈值设置的低一点，插入频率较低
     if(nKFs<2)
         thRefRatio = 0.4f;
@@ -3790,7 +3790,7 @@ bool Tracking::NeedNewKeyFrame()
         {
             /// modify
             //if ((mCurrentFrame.mTimeStamp-mpLastKeyFrame->mTimeStamp)>=0.5)
-            if ((mCurrentFrame.mTimeStamp-mpLastKeyFrame->mTimeStamp)>=0.4)
+            if ((mCurrentFrame.mTimeStamp-mpLastKeyFrame->mTimeStamp)>=0.5)
                 c3 = true;
         }
     }
@@ -3816,18 +3816,18 @@ bool Tracking::NeedNewKeyFrame()
         float target_d_z = fabs(fabs(dz) - fabs(d_move)*mfCurrentSmoothK)/sqrt(1+mfCurrentSmoothK*mfCurrentSmoothK);
         //cout << "沿x轴位移：" << dx << endl;
         //cout << "当前帧："<< refFrameCameraCenter[0]<< " " << refFrameCameraCenter[1] << " " << refFrameCameraCenter[2] << endl;
-        //cout << "当前帧平滑情况： " << target_d_z << endl;///平滑阈值
+        //cout << "Traj平滑目标值：" << target_d_z << endl;///平滑阈值
         if(d_move>0.8){
             //位移过长，直接判定为真
             c5 = true;
         }
         else if(target_d_z > mThSmoothTrajectory){///平滑阈值
-            if(bNeedToInsertClose)
-                c5 = true;
-            else{
+//            if(bNeedToInsertClose)
+//                c5 = true;
+            //else{
                 c5 = false;
-                //cout << "已因平滑性拒绝一帧" << endl;
-            }
+                //cout << "已因Traj平滑性拒绝一帧" << endl;
+            //}
         }
     }
 
@@ -3836,14 +3836,14 @@ bool Tracking::NeedNewKeyFrame()
     if(mpAtlas->GetCurrentMap()->GetIniertialBA2() && mCurrentFrame.HasVelocity() && mfCurrentSmoothVelo!=0){
         float vel_g = mCurrentFrame.GetVelocity()[2];
         float target_velo = fabs(vel_g-mfCurrentSmoothVelo)/sqrt(1+mfCurrentSmoothVelo*mfCurrentSmoothVelo);
-        //cout << "速度平滑目标值" << target_velo << endl;
+        //cout << "Velo平滑目标值：" << target_velo << endl;
         if(target_velo > mThSmoothVelocity){
-            if(bNeedToInsertClose)
-                c6 = true;
-            else{
+//            if(bNeedToInsertClose)
+//                c6 = true;
+//            else{
                 c6 = false;
-                //cout << "已因速度平滑性拒绝一帧" << endl;
-            }
+                //cout << "已因Velo平滑性拒绝一帧" << endl;
+            //}
         }
     }
 
@@ -3852,7 +3852,8 @@ bool Tracking::NeedNewKeyFrame()
     //cout << "c1a||c1b||c1c) && c2 && c6)||c3 " << c1a <<" "<< c1b <<" "<< c1c <<" "<< c2 <<" "<< c6 <<" " << c3 << endl;
     if(((c1a||c1b||c1c) && c2 && c5 && c6)|| c3 ||c4)
     {
-        //cout<< "accept with c6: " << c6 << endl;
+        //cout<< "accept with c3: " << c3 << endl;
+        //cout<< "bLocalMappingIdle：" << bLocalMappingIdle <<endl;
         // If the mapping accepts keyframes, insert keyframe.
         // Otherwise send a signal to interrupt BA
         // Step 7.6：local mapping空闲时或者正在做imu初始化时可以直接插入，不空闲的时候要根据情况插入
@@ -4293,7 +4294,7 @@ void Tracking::UpdateLocalKeyFrames()
     // All keyframes that observe a map point are included in the local map. Also check which keyframe shares most points
     // Step 2.1 类型1：能观测到当前帧地图点的关键帧作为局部关键帧 （将邻居拉拢入伙）（一级共视关键帧）
 
-    /// modify 速度平滑约束平滑系数
+    /// modify 速度与轨迹平滑约束平滑系数
     float velo_g = 0;
     int numForSmoothVelo = 0;
     float d_z = 0;
@@ -4323,10 +4324,10 @@ void Tracking::UpdateLocalKeyFrames()
         /// modify
         //cout << "test _ 4" << endl;
         //cout << "test:  " << refKFId - pKF->mnId << endl;
-        if((refKFId - pKF->mnId) < 20 && mpAtlas->GetCurrentMap()->GetIniertialBA2()){
+        if((refKFId - pKF->mnId) < 30 && mpAtlas->GetCurrentMap()->GetIniertialBA2()){
             ///MODIFY 计算平滑指数
             KeyFrame* pParent = pKF->GetParent();
-            if(pParent && numForSmoothZ<15){
+            if(pParent && numForSmoothZ<25){
                 Eigen::Vector3f parentCameraCenter =  pParent->GetCameraCenter();//获取当前共视关键帧的父关键帧光心
                 Eigen::Vector3f kfCameraCenter = pKF->GetCameraCenter();//获取当前共视关键帧光心 XYZ
                 //cout << "parent" << parentCameraCenter[0] << " " << parentCameraCenter[1] << " " << parentCameraCenter[2] << endl;
@@ -4339,7 +4340,7 @@ void Tracking::UpdateLocalKeyFrames()
                 numForSmoothZ++;
             }
             ///
-            if(pKF->isVelocitySet() && numForSmoothVelo<15){
+            if(pKF->isVelocitySet() && numForSmoothVelo<25){
                 Eigen::Vector3f vel = pKF->GetVelocity();
                 velo_g += pKF->GetVelocity()[2];
                 //cout << "xiangguanzhensudu: " << vel[0] <<"  "<< vel[1] << "  "<< vel[2] << endl;
@@ -4350,8 +4351,8 @@ void Tracking::UpdateLocalKeyFrames()
     }
     /// modify
     if(mpAtlas->GetCurrentMap()->GetIniertialBA2()){
-        KeyFrame* pKF = mCurrentFrame.mpLastKeyFrame;
-        while(numForSmoothVelo < 15 && pKF){
+        KeyFrame* pKF = mLastFrame.mpReferenceKF;
+        while(numForSmoothVelo < 25 && pKF){
             if(!pKF->isBad() && pKF->mnTrackReferenceForFrame!=mCurrentFrame.mnId){
                 if(pKF->isVelocitySet()){
                     Eigen::Vector3f vel = pKF->GetVelocity();
@@ -4361,14 +4362,34 @@ void Tracking::UpdateLocalKeyFrames()
             }
             pKF = pKF -> mPrevKF;
         }
-        if(numForSmoothVelo >= 15){
+        if(numForSmoothVelo >= 25){
             ///一级共视充足
             mfCurrentSmoothVelo = velo_g/static_cast<float>(numForSmoothVelo);
-            //cout << "当前一级共视系数" << mfCurrentSmoothVelo <<"canyude帧数： " << numForSmoothVelo << endl;
+            //cout << "更新速度平滑" << mfCurrentSmoothVelo <<" 参考帧数： " << numForSmoothVelo << endl;
         }
-        if(numForSmoothZ>10){
+
+        pKF = mLastFrame.mpReferenceKF;
+        while(numForSmoothZ < 25 && pKF){
+            if(!pKF->isBad() && pKF->mnTrackReferenceForFrame!=mCurrentFrame.mnId){
+                KeyFrame* pParent = pKF->GetParent();
+                if(pParent){
+                    Eigen::Vector3f parentCameraCenter =  pParent->GetCameraCenter();//获取当前共视关键帧的父关键帧光心
+                    Eigen::Vector3f kfCameraCenter = pKF->GetCameraCenter();//获取当前共视关键帧光心 XYZ
+                    //cout << "parent" << parentCameraCenter[0] << " " << parentCameraCenter[1] << " " << parentCameraCenter[2] << endl;
+                    //cout << "child" << kfCameraCenter[0] << " " << kfCameraCenter[1] << " " << kfCameraCenter[2] << endl;
+                    float dz = parentCameraCenter[2] - kfCameraCenter[2];
+                    float dx = parentCameraCenter[0] - kfCameraCenter[0];
+                    float dy = parentCameraCenter[1] - kfCameraCenter[1];
+                    float d_move = sqrt(dx*dx + dy*dy);
+                    d_z += fabs(dz/d_move);
+                    numForSmoothZ++;
+                }
+            }
+            pKF = pKF -> mPrevKF;
+        }
+        if(numForSmoothZ >= 25){
             mfCurrentSmoothK = d_z/static_cast<float>(numForSmoothZ);
-            //cout << "更新平滑指数k：" << mfCurrentSmoothK << "canyude帧数：" <<  numForSmoothZ << endl;
+            //cout << "更新轨迹平滑k：" << mfCurrentSmoothK << " 参考帧数：" <<  numForSmoothZ << endl;
         }
     }
 

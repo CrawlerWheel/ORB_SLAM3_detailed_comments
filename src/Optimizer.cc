@@ -554,7 +554,7 @@ int Optimizer::PoseInertialOptimizationLastKeyFrame(Frame *pFrame, bool bRecInit
                     vnIndexEdgeMono.push_back(i);
                 }
                 // Stereo observation
-                /// ？？？ Stereo 的 bRight不该是true吗
+                /// Stereo 的 bRight不该是true吗？？？ 立体视觉和独立的两个镜头其实还是分开的！这种情况就是传统的双目
                 else if (!bRight)
                 {
                     nInitialStereoCorrespondences++;
@@ -564,7 +564,7 @@ int Optimizer::PoseInertialOptimizationLastKeyFrame(Frame *pFrame, bool bRecInit
                     const float kp_ur = pFrame->mvuRight[i];
                     Eigen::Matrix<double, 3, 1> obs;
                     obs << kpUn.pt.x, kpUn.pt.y, kp_ur;
-
+                    /// 双目位姿一元边
                     EdgeStereoOnlyPose *e = new EdgeStereoOnlyPose(pMP->GetWorldPos());
 
                     e->setVertex(0, VP);
@@ -880,7 +880,7 @@ int Optimizer::PoseInertialOptimizationLastKeyFrame(Frame *pFrame, bool bRecInit
     // H(x)=J(x).t()*info*J(x)
 
     // J(x)取的是EdgeInertial中的_jacobianOplus[4]和_jacobianOplus[5]，即EdgeInertial::computeError计算出来的er,ev,ep对当前帧Pose和Velocity的偏导
-    //因此ei->GetHessian2的结果为：
+    //因此ei->GetHessian2的结果为：(H矩阵表示了当前r,v,p之间的关系，关系类似于邻接矩阵)
     // H(∂er/∂r) H(∂er/∂t) H(∂er/∂v)
     // H(∂ev/∂r) H(∂ev/∂t) H(∂ev/∂v)
     // H(∂ep/∂r) H(∂ep/∂t) H(∂ep/∂v)
@@ -1533,7 +1533,7 @@ int Optimizer::PoseInertialOptimizationLastFrame(Frame *pFrame, bool bRecInit)
     H.block<3, 3>(12, 27) += Har.block<3, 3>(0, 3); // Jar1.t * Jar2
     H.block<3, 3>(27, 12) += Har.block<3, 3>(3, 0); // Jar2.t * Jar1
     H.block<3, 3>(27, 27) += Har.block<3, 3>(3, 3); // Jar2.t * Jar2
-    // 经过这步H变成了
+    // 经过这步H变成了 整体参与的状态量：p1 v1 g1 a1 p2 v2 g2 a2
     // 列数 6            3                    3                            3                         6           3             3              3
     // --------------------------------------------------------------------------------------------------------------------------------------------------- 行数
     // |  Jp1.t * Jp1  Jp1.t * Jv1         Jp1.t * Jg1                 Jp1.t * Ja1            |  Jp1.t * Jp2  Jp1.t * Jv2        0              0        |  6
@@ -2265,6 +2265,7 @@ void Optimizer::LocalInertialBA(
 
     // Fixed Keyframe: First frame previous KF to optimization window)
     // Step 3. 固定一帧，为vpOptimizableKFs中最早的那一关键帧的上一关键帧，如果没有上一关键帧了就用最早的那一帧，毕竟目前得到的地图虽然有尺度但并不是绝对的位置
+    ///固定头帧
     list<KeyFrame *> lFixedKeyFrames;
     if (vpOptimizableKFs.back()->mPrevKF)
     {
@@ -2339,6 +2340,7 @@ void Optimizer::LocalInertialBA(
             break;
     }
 
+    /// 应该不会为真，至少头关键帧是固定住的
     bool bNonFixed = (lFixedKeyFrames.size() == 0);
 
     // Setup optimizer
@@ -2447,6 +2449,7 @@ void Optimizer::LocalInertialBA(
         }
         if (pKFi->bImu && pKFi->mPrevKF->bImu && pKFi->mpImuPreintegrated)
         {
+            ///设置当前帧的预积分Bias在这里有什么意义呢？？？
             pKFi->mpImuPreintegrated->SetNewBias(pKFi->mPrevKF->GetImuBias());
             g2o::HyperGraph::Vertex *VP1 = optimizer.vertex(pKFi->mPrevKF->mnId);
             g2o::HyperGraph::Vertex *VV1 = optimizer.vertex(maxKFid + 3 * (pKFi->mPrevKF->mnId) + 1);
@@ -2522,6 +2525,7 @@ void Optimizer::LocalInertialBA(
     vpMapPointEdgeMono.reserve(nExpectedSize);
 
     // Stereo
+    /// 这里是 双目位姿三维点二元边 不再是跟踪阶段的一元边
     vector<EdgeStereo *> vpEdgesStereo;
     vpEdgesStereo.reserve(nExpectedSize);
 
@@ -2539,7 +2543,7 @@ void Optimizer::LocalInertialBA(
 
     const unsigned long iniMPid = maxKFid * 5;
 
-    map<int, int> mVisEdges; ///记录当前帧有多上重投影边
+    map<int, int> mVisEdges; ///记录当前帧有多少重投影边
     for (int i = 0; i < N; i++)
     {
         KeyFrame *pKFi = vpOptimizableKFs[i];
@@ -2558,7 +2562,7 @@ void Optimizer::LocalInertialBA(
 
         unsigned long id = pMP->mnId + iniMPid + 1;
         vPoint->setId(id);
-        ///？？？
+        /// ？？？ 这里的边缘化与滑动窗口不同，而是为了加速稀疏矩阵的计算BlockSolver_6_3默认了6维度的不边缘化，3自由度的三维点被边缘化，所以所有三维点都设置边缘化
         vPoint->setMarginalized(true);
         optimizer.addVertex(vPoint);
         const map<KeyFrame *, tuple<int, int>> observations = pMP->GetObservations();
@@ -2689,7 +2693,7 @@ void Optimizer::LocalInertialBA(
     // 12. 开始优化
     optimizer.initializeOptimization();
     optimizer.computeActiveErrors();
-
+    /// activeRobustChi2？？？用途
     float err = optimizer.activeRobustChi2();
     optimizer.optimize(opt_it); // Originally to 2
     float err_end = optimizer.activeRobustChi2();
@@ -3266,7 +3270,7 @@ void Optimizer::FullInertialBA(
     solver->setUserLambdaInit(1e-5);
     optimizer.setAlgorithm(solver);
     optimizer.setVerbose(false);
-
+    /// 之所以 pbStopFlag 传指针就是为了在有外部中止信号时，可以及时进行终止
     if (pbStopFlag)
         optimizer.setForceStopFlag(pbStopFlag);
 
@@ -3316,6 +3320,7 @@ void Optimizer::FullInertialBA(
     // priorA!=0.f 时 bInit为true，加入了偏置节点
     if (bInit)
     {
+        /// 提供了随机游走相关的先验，那就只有这两个关于随机游走的节点了？？？
         VertexGyroBias *VG = new VertexGyroBias(pIncKF);
         VG->setId(4 * maxKFid + 2);
         VG->setFixed(false);
@@ -3431,8 +3436,8 @@ void Optimizer::FullInertialBA(
             }
             else
                 cout << pKFi->mnId << " or " << pKFi->mPrevKF->mnId << " no imu" << endl;
-        }
-    }
+        }//处理一对KF
+    }//for 对所有关键帧进行惯性边 （和随机游走边）处理
 
     // 只加入pIncKF帧的偏置，优化偏置到0
     if (bInit)
@@ -3443,7 +3448,7 @@ void Optimizer::FullInertialBA(
         // Add prior to comon biases
         Eigen::Vector3f bprior;
         bprior.setZero();
-
+        ///为何两处都要优化bias到零？？？ bInit为true就是初始化阶段（一二阶段）进行调用，所有相关Frame共用一个bias信息，并且bias应该在0附近
         EdgePriorAcc *epa = new EdgePriorAcc(bprior);
         epa->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex *>(VA));
         double infoPriorA = priorA; //
@@ -3815,10 +3820,10 @@ void Optimizer::InertialOptimization(
             g2o::HyperGraph::Vertex *VV1 = optimizer.vertex(maxKFid + (pKFi->mPrevKF->mnId) + 1);
             g2o::HyperGraph::Vertex *VP2 = optimizer.vertex(pKFi->mnId);
             g2o::HyperGraph::Vertex *VV2 = optimizer.vertex(maxKFid + (pKFi->mnId) + 1);
-            g2o::HyperGraph::Vertex *VG = optimizer.vertex(maxKFid * 2 + 2);
-            g2o::HyperGraph::Vertex *VA = optimizer.vertex(maxKFid * 2 + 3);
-            g2o::HyperGraph::Vertex *VGDir = optimizer.vertex(maxKFid * 2 + 4);
-            g2o::HyperGraph::Vertex *VS = optimizer.vertex(maxKFid * 2 + 5);
+            g2o::HyperGraph::Vertex *VG = optimizer.vertex(maxKFid * 2 + 2);//共用节点
+            g2o::HyperGraph::Vertex *VA = optimizer.vertex(maxKFid * 2 + 3);//共用节点
+            g2o::HyperGraph::Vertex *VGDir = optimizer.vertex(maxKFid * 2 + 4);//共用节点
+            g2o::HyperGraph::Vertex *VS = optimizer.vertex(maxKFid * 2 + 5);//共用节点
             if (!VP1 || !VV1 || !VG || !VA || !VP2 || !VV2 || !VGDir || !VS)
             {
                 cout << "Error" << VP1 << ", " << VV1 << ", " << VG << ", " << VA << ", " << VP2 << ", " << VV2 << ", " << VGDir << ", " << VS << endl;

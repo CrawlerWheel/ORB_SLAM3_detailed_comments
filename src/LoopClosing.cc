@@ -113,6 +113,7 @@ void LoopClosing::Run()
         // Step 1 查看闭环检测队列mlpLoopKeyFrameQueue中有没有关键帧进来
         if(CheckNewKeyFrames())
         {
+            cout<<"回环线程当前处理关键帧："<< mpCurrentKF->mnId << endl;
             // 这部分后续未使用
             if(mpLastCurrentKF)
             {
@@ -133,9 +134,11 @@ void LoopClosing::Run()
 #endif
             if(bFindedRegion)
             {
+
                 // Step 3 如果检测到融合（当前关键帧与其他地图有关联）, 则合并地图
                 if(mbMergeDetected)
                 {
+                    cout << "mbMergeDetected!!!!!!!!!!!!!"<<endl;
                     // 在imu没有初始化就放弃融合
                     if ((mpTracker->mSensor==System::IMU_MONOCULAR || mpTracker->mSensor==System::IMU_STEREO || mpTracker->mSensor==System::IMU_RGBD) &&
                         (!mpCurrentKF->GetMap()->isImuInitialized()))
@@ -255,6 +258,7 @@ void LoopClosing::Run()
                 // Step 4 如果(没有检测到融合)检测到回环, 则回环矫正
                 if(mbLoopDetected)
                 {
+                    cout<< "mbLoopDetected!!!!!!!!!!!!!"<<endl;
                     // 标记时间戳
                     bool bGoodLoop = true;
                     vdPR_CurrentTime.push_back(mpCurrentKF->mTimeStamp);
@@ -1293,6 +1297,7 @@ void LoopClosing::CorrectLoop()
 
         if(mpThreadGBA)
         {
+            /// 为啥挂在了后台又要删除？？？
             mpThreadGBA->detach();
             delete mpThreadGBA;
         }
@@ -1482,7 +1487,7 @@ void LoopClosing::CorrectLoop()
             }
         }
         //cout << "LC: end replacing duplicated" << endl;
-    }
+    }///地图点操作
 
     // Project MapPoints observed in the neighborhood of the loop keyframe
     // into the current keyframe and neighbors using corrected poses.

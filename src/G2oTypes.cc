@@ -846,6 +846,7 @@ void EdgeInertialGS::linearizeOplus()
 EdgePriorPoseImu::EdgePriorPoseImu(ConstraintPoseImu *c)
 {
     resize(4);
+    //上一帧15状态量
     Rwb = c->Rwb;
     twb = c->twb;
     vwb = c->vwb;
