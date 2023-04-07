@@ -183,6 +183,8 @@ public:
     // Variables used by local mapping
     long unsigned int mnBALocalForKF;
     long unsigned int mnFuseCandidateForKF;
+    /// modify
+    long unsigned int mnCurveBAatKF;
 
     // Variables used by loop closing
     long unsigned int mnLoopPointForKF;

@@ -65,7 +65,8 @@ public:
 
     void RequestReset();
     void RequestResetActiveMap(Map* pMap);
-
+    /// modify
+    void RunCurveOptimization(Map* pActiveMap);
     // This function will run in a separate thread
     void RunGlobalBundleAdjustment(Map* pActiveMap, unsigned long nLoopKF);
 
@@ -136,7 +137,8 @@ protected:
 
     void SearchAndFuse(const KeyFrameAndPose &CorrectedPosesMap, vector<MapPoint*> &vpMapPoints);
     void SearchAndFuse(const vector<KeyFrame*> &vConectedKFs, vector<MapPoint*> &vpMapPoints);
-
+    /// modify
+    void CorrectCurve();
     void CorrectLoop();
 
     void MergeLocal();
@@ -173,6 +175,8 @@ protected:
 
     // Loop detector variables
     KeyFrame* mpCurrentKF;
+    KeyFrame* mpTriggerKF;
+    KeyFrame* mpCurveStartKF;
     KeyFrame* mpLastCurrentKF;
     KeyFrame* mpMatchedKF;
     std::vector<ConsistentGroup> mvConsistentGroups;

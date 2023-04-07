@@ -327,6 +327,9 @@ public:
     // Variables used by the local mapping
     long unsigned int mnBALocalForKF;
     long unsigned int mnBAFixedForKF;
+    /// modify
+    long unsigned int mnCurveBAatKF;
+    long unsigned int mnCurveBAFixedAtKF;
 
     //Number of optimizations by BA(amount of iterations in BA)
     long unsigned int mnNumberOfOpt;

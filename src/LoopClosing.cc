@@ -113,6 +113,23 @@ void LoopClosing::Run()
         // Step 1 查看闭环检测队列mlpLoopKeyFrameQueue中有没有关键帧进来
         if(CheckNewKeyFrames())
         {
+            //cout << "test------------------------------" << endl;
+            {
+                // Step 1 从队列中取出一个关键帧,作为当前检测共同区域的关键帧
+                unique_lock<mutex> lock(mMutexLoopQueue);
+                // 从队列头开始取，也就是先取早进来的关键帧
+                mpCurrentKF = mlpLoopKeyFrameQueue.front();
+                // 取出关键帧后从队列里弹出该关键帧
+                mlpLoopKeyFrameQueue.pop_front();
+                // Avoid that a keyframe can be erased while it is being process by this thread
+                // 设置当前关键帧不要在优化的过程中被删除
+                mpCurrentKF->SetNotErase();
+                mpCurrentKF->mbCurrentPlaceRecognition = true;
+                // 当前关键帧对应的地图
+                mpLastMap = mpCurrentKF->GetMap();
+            }
+
+            cout << "LCD mpCurrentKF："<< mpCurrentKF->mnId << endl;
             // 这部分后续未使用
             if(mpLastCurrentKF)
             {
@@ -122,8 +139,21 @@ void LoopClosing::Run()
 #ifdef REGISTER_TIMES
             std::chrono::steady_clock::time_point time_StartPR = std::chrono::steady_clock::now();
 #endif
+            /// modify 过弯优化
+            bool bFindCurveOpportunity = false;
+            if(mpCurrentKF->mnId == 220){
+                mpCurveStartKF = mpCurrentKF;
+            }
+            if(mpCurrentKF->mnId == 380){
+                mpTriggerKF = mpCurrentKF;
+                Eigen::Vector3f ckfLo = mpTriggerKF->GetCameraCenter();
+                Eigen::Vector3f skfLo = mpCurveStartKF->GetCameraCenter();
+                cout << "BEFORE: mpCurrentKF location: "  << ckfLo[0] << " " << ckfLo[1] << " " << ckfLo[2] << endl;
+                cout << "BEFORE: mpStartKF location: "  << skfLo[0] << " " << skfLo[1] << " " << skfLo[2] << endl;
+                CorrectCurve();
+            }
             // Step 2 检测有没有共视的区域
-            bool bFindedRegion = NewDetectCommonRegions();
+//            bool bFindedRegion = NewDetectCommonRegions();
 
 #ifdef REGISTER_TIMES
             std::chrono::steady_clock::time_point time_EndPR = std::chrono::steady_clock::now();
@@ -131,7 +161,7 @@ void LoopClosing::Run()
             double timePRTotal = std::chrono::duration_cast<std::chrono::duration<double,std::milli> >(time_EndPR - time_StartPR).count();
             vdPRTotal_ms.push_back(timePRTotal);
 #endif
-            if(bFindedRegion)
+/*            if(bFindedRegion)
             {
                 // Step 3 如果检测到融合（当前关键帧与其他地图有关联）, 则合并地图
                 if(mbMergeDetected)
@@ -277,7 +307,7 @@ void LoopClosing::Run()
 
                         // 拿到 roll ,pitch ,yaw
                         Eigen::Vector3d phi = LogSO3(g2oSww_new.rotation().toRotationMatrix());
-                        cout << "phi = " << phi.transpose() << endl; 
+                        cout << "phi = " << phi.transpose() << endl;
                         // 这里算是通过imu重力方向验证回环结果, 如果pitch或roll角度偏差稍微有一点大,则回环失败. 对yaw容忍比较大(20度)
                         if (fabs(phi(0))<0.008f && fabs(phi(1))<0.008f && fabs(phi(2))<0.349f)
                         {
@@ -338,7 +368,7 @@ void LoopClosing::Run()
                     mbLoopDetected = false;
                 }
 
-            }
+            }*/
             mpLastCurrentKF = mpCurrentKF;
         }
         // 查看是否有外部线程请求复位当前线程
@@ -1265,6 +1295,44 @@ int LoopClosing::FindMatchesByProjection(
     int num_matches = matcher.SearchByProjection(pCurrentKF, mScw, vpMapPoints, vpMatchedMapPoints, 3, 1.5);
 
     return num_matches;
+}
+/// modify
+void LoopClosing::CorrectCurve(){
+    mpLocalMapper->RequestStop();
+    mpLocalMapper->EmptyQueue(); // Proccess keyframes in the queue
+
+    if(isRunningGBA())
+    {
+        cout << "Stoping Curve Bundle Adjustment...";
+        unique_lock<mutex> lock(mMutexGBA);
+        mbStopGBA = true;
+        // 记录全局BA次数
+        mnFullBAIdx++;
+
+        if(mpThreadGBA)
+        {
+            mpThreadGBA->detach();
+            delete mpThreadGBA;
+        }
+        cout << "  Done!!" << endl;
+    }
+    while(!mpLocalMapper->isStopped())
+    {
+        usleep(1000);
+    }
+    mbRunningGBA = true;
+    mbFinishedGBA = false;
+    mbStopGBA = false;
+//    mnCorrectionGBA = mnNumCorrection;
+    //const long unsigned int nStartId = 80;
+//    KeyFrame * pCurveKF = mpCurrentKF;
+    // imu 初始化成功才返回true，只要一阶段成功就为true
+    if(mpTracker->mSensor==System::IMU_STEREO && mpCurrentKF->GetMap()->GetIniertialBA2()){
+        cout << "Cureve is ready!" <<endl;
+        mpThreadGBA = new thread(&LoopClosing::RunCurveOptimization, this, mpCurrentKF->GetMap());
+        //RunCurveOptimization(mpCurrentKF->GetMap());
+    }
+    mpLocalMapper->Release();
 }
 
 /**
@@ -2861,6 +2929,249 @@ void LoopClosing::ResetIfRequested()
     }
 }
 
+/// modify
+void LoopClosing::RunCurveOptimization(Map* pActiveMap){
+    const long unsigned int startId = mpCurveStartKF->mnId;
+    cout << "Starting Curve Bundle Adjustment" << endl;
+    Optimizer::CurveOptimization(pActiveMap, mpCurrentKF, startId, 10, false, &mbStopGBA);
+    mbFinishedGBA = true;
+    mbRunningGBA = false;
+    cout << "Curve Bundle Adjustment end" << endl;
+    // 记录GBA已经迭代次数,用来检查全局BA过程是否是因为意外结束的
+    int idx =  mnFullBAIdx;
+    // Optimizer::GlobalBundleAdjustemnt(mpMap,10,&mbStopGBA,nLoopKF,false);
+
+    // Update all MapPoints and KeyFrames
+    // Local Mapping was active during BA, that means that there might be new keyframes
+    // not included in the Global BA and they are not consistent with the updated map.
+    // We need to propagate the correction through the spanning tree
+    {
+        unique_lock<mutex> lock(mMutexGBA);
+        if(idx!=mnFullBAIdx)
+            return;
+
+//        if(!bImuInit && pActiveMap->isImuInitialized())
+//            return;
+
+        if(!mbStopGBA)
+        {
+            cout<<"Global Bundle Adjustment finished"<< endl;
+            cout<<"Updating map ..."<< endl;
+
+            /// 在此之前 CorrectLoop() MergeLocal() 等， 其实已经将mpLocalMapper release了，在全局BA过程中不妨碍 LM 和 LCD 线程运行，在即将处理结果时重新将 LM线程挂起
+            mpLocalMapper->RequestStop();
+            // Wait until Local Mapping has effectively stopped
+
+            while(!mpLocalMapper->isStopped() && !mpLocalMapper->isFinished())
+            {
+                usleep(1000);
+            }
+
+            // Get Map Mutex
+            unique_lock<mutex> lock(pActiveMap->mMutexMapUpdate);
+            // cout << "LC: Update Map Mutex adquired" << endl;
+            cout<< "getClock" << endl;
+            //pActiveMap->PrintEssentialGraph();
+            // Correct keyframes starting at map first keyframe
+            /// mvpKeyFrameOrigins中可能只有一个元素
+//            list<KeyFrame*> lpKFtoCheck(pActiveMap->mvpKeyFrameOrigins.begin(),pActiveMap->mvpKeyFrameOrigins.end());
+            list<KeyFrame*> lpKFtoCheck;
+            lpKFtoCheck.push_back(mpCurveStartKF);
+            // 通过树的方式更新未参与全局优化的关键帧，一个关键帧与其父节点的共视点数最多，所以选其作为参考帧
+            while(!lpKFtoCheck.empty())
+            {
+                KeyFrame* pKF = lpKFtoCheck.front();
+                const set<KeyFrame*> sChilds = pKF->GetChilds();
+                //cout << "---Updating KF " << pKF->mnId << " with " << sChilds.size() << " childs" << endl;
+                //cout << " KF mnBAGlobalForKF: " << pKF->mnBAGlobalForKF << endl;
+                Sophus::SE3f Twc = pKF->GetPoseInverse();
+                //cout << "Twc: " << Twc << endl;
+                //cout << "GBA: Correct KeyFrames" << endl;
+                // 广度优先搜索
+                for(set<KeyFrame*>::const_iterator sit=sChilds.begin();sit!=sChilds.end();sit++)
+                {
+                    KeyFrame* pChild = *sit;
+                    if(!pChild || pChild->isBad())
+                        continue;
+
+                    // 专门处理没有参与优化的新关键帧
+                    if(pChild->mnCurveBAatKF!=mpCurrentKF->mnId)
+                    {
+                        //cout << "++++New child with flag " << pChild->mnBAGlobalForKF << "; LoopKF: " << nLoopKF << endl;
+                        //cout << " child id: " << pChild->mnId << endl;
+                        Sophus::SE3f Tchildc = pChild->GetPose() * Twc;
+                        //cout << "Child pose: " << Tchildc << endl;
+                        //cout << "pKF->mTcwGBA: " << pKF->mTcwGBA << endl;
+                        pChild->mTcwGBA = Tchildc * pKF->mTcwGBA;//*Tcorc*pKF->mTcwGBA;
+
+                        Sophus::SO3f Rcor = pChild->mTcwGBA.so3().inverse() * pChild->GetPose().so3();
+                        if(pChild->isVelocitySet()){
+                            pChild->mVwbGBA = Rcor * pChild->GetVelocity();
+                        }
+                        else
+                            Verbose::PrintMess("Child velocity empty!! ", Verbose::VERBOSITY_NORMAL);
+
+
+                        //cout << "Child bias: " << pChild->GetImuBias() << endl;
+                        pChild->mBiasGBA = pChild->GetImuBias();
+
+
+                        pChild->mnBAGlobalForKF = mpCurrentKF->mnId;  // 标记成更新过的
+
+                    }
+                    lpKFtoCheck.push_back(pChild);
+                }
+                /// 对于最早那一个固定关键帧 StartKF 直接跳过不进行更新
+                if(pKF->mnId == mpCurveStartKF->mnId){
+                    lpKFtoCheck.pop_front();
+                    continue;
+                }
+                //cout << "-------Update pose" << endl;
+                pKF->mTcwBefGBA = pKF->GetPose();
+                //cout << "pKF->mTcwBefGBA: " << pKF->mTcwBefGBA << endl;
+                pKF->SetPose(pKF->mTcwGBA);
+                /*cv::Mat Tco_cn = pKF->mTcwBefGBA * pKF->mTcwGBA.inv();
+                cv::Vec3d trasl = Tco_cn.rowRange(0,3).col(3);
+                double dist = cv::norm(trasl);
+                cout << "GBA: KF " << pKF->mnId << " had been moved " << dist << " meters" << endl;
+                double desvX = 0;
+                double desvY = 0;
+                double desvZ = 0;
+                if(pKF->mbHasHessian)
+                {
+                    cv::Mat hessianInv = pKF->mHessianPose.inv();
+
+                    double covX = hessianInv.at<double>(3,3);
+                    desvX = std::sqrt(covX);
+                    double covY = hessianInv.at<double>(4,4);
+                    desvY = std::sqrt(covY);
+                    double covZ = hessianInv.at<double>(5,5);
+                    desvZ = std::sqrt(covZ);
+                    pKF->mbHasHessian = false;
+                }
+                if(dist > 1)
+                {
+                    cout << "--To much distance correction: It has " << pKF->GetConnectedKeyFrames().size() << " connected KFs" << endl;
+                    cout << "--It has " << pKF->GetCovisiblesByWeight(80).size() << " connected KF with 80 common matches or more" << endl;
+                    cout << "--It has " << pKF->GetCovisiblesByWeight(50).size() << " connected KF with 50 common matches or more" << endl;
+                    cout << "--It has " << pKF->GetCovisiblesByWeight(20).size() << " connected KF with 20 common matches or more" << endl;
+
+                    cout << "--STD in meters(x, y, z): " << desvX << ", " << desvY << ", " << desvZ << endl;
+
+
+                    string strNameFile = pKF->mNameFile;
+                    cv::Mat imLeft = cv::imread(strNameFile, CV_LOAD_IMAGE_UNCHANGED);
+
+                    cv::cvtColor(imLeft, imLeft, CV_GRAY2BGR);
+
+                    vector<MapPoint*> vpMapPointsKF = pKF->GetMapPointMatches();
+                    int num_MPs = 0;
+                    for(int i=0; i<vpMapPointsKF.size(); ++i)
+                    {
+                        if(!vpMapPointsKF[i] || vpMapPointsKF[i]->isBad())
+                        {
+                            continue;
+                        }
+                        num_MPs += 1;
+                        string strNumOBs = to_string(vpMapPointsKF[i]->Observations());
+                        cv::circle(imLeft, pKF->mvKeys[i].pt, 2, cv::Scalar(0, 255, 0));
+                        cv::putText(imLeft, strNumOBs, pKF->mvKeys[i].pt, CV_FONT_HERSHEY_DUPLEX, 1, cv::Scalar(255, 0, 0));
+                    }
+                    cout << "--It has " << num_MPs << " MPs matched in the map" << endl;
+
+                    string namefile = "./test_GBA/GBA_" + to_string(nLoopKF) + "_KF" + to_string(pKF->mnId) +"_D" + to_string(dist) +".png";
+                    cv::imwrite(namefile, imLeft);
+                }*/
+
+
+                if(pKF->bImu)
+                {
+                    //cout << "-------Update inertial values" << endl;
+                    pKF->mVwbBefGBA = pKF->GetVelocity();
+                    //if (pKF->mVwbGBA.empty())
+                    //    Verbose::PrintMess("pKF->mVwbGBA is empty", Verbose::VERBOSITY_NORMAL);
+
+                    //assert(!pKF->mVwbGBA.empty());
+                    pKF->SetVelocity(pKF->mVwbGBA);
+                    pKF->SetNewBias(pKF->mBiasGBA);
+                }
+
+                lpKFtoCheck.pop_front();
+            }
+
+            //cout << "GBA: Correct MapPoints" << endl;
+            // Correct MapPoints
+            // 更新mp点
+            const vector<MapPoint*> vpMPs = pActiveMap->GetAllMapPoints();
+
+            for(size_t i=0; i<vpMPs.size(); i++)
+            {
+                MapPoint* pMP = vpMPs[i];
+
+                if(pMP->isBad())
+                    continue;
+
+                // NOTICE 并不是所有的地图点都会直接参与到全局BA优化中,但是大部分的地图点需要根据全局BA优化后的结果来重新纠正自己的位姿
+                // 如果这个地图点直接参与到了全局BA优化的过程,那么就直接重新设置器位姿即可
+                if(pMP->mnBAGlobalForKF==mpCurrentKF->mnId)
+                {
+                    // If optimized by Global BA, just update
+                    pMP->SetWorldPos(pMP->mPosGBA);
+                }
+                else  // 如故这个地图点并没有直接参与到全局BA优化的过程中,那么就使用器参考关键帧的新位姿来优化自己的位姿
+                {
+                    // Update according to the correction of its reference keyframe
+                    // 说明这个关键帧，在前面的过程中也没有因为“当前关键帧”得到全局BA优化
+                    //? 可是,为什么会出现这种情况呢? 难道是因为这个地图点的参考关键帧设置成为了bad?
+                    KeyFrame* pRefKF = pMP->GetReferenceKeyFrame();
+
+                    if(pRefKF->mnBAGlobalForKF!=mpCurrentKF->mnId)
+                        continue;
+
+                    /*if(pRefKF->mTcwBefGBA.empty())
+                        continue;*/
+
+                    // Map to non-corrected camera
+                    // cv::Mat Rcw = pRefKF->mTcwBefGBA.rowRange(0,3).colRange(0,3);
+                    // cv::Mat tcw = pRefKF->mTcwBefGBA.rowRange(0,3).col(3);
+                    // 转换到其参考关键帧相机坐标系下的坐标
+                    Eigen::Vector3f Xc = pRefKF->mTcwBefGBA * pMP->GetWorldPos();
+
+                    // Backproject using corrected camera
+                    // 然后使用已经纠正过的参考关键帧的位姿,再将该地图点变换到世界坐标系下
+                    pMP->SetWorldPos(pRefKF->GetPoseInverse() * Xc);
+                }
+            }
+
+            pActiveMap->InformNewBigChange();
+            pActiveMap->IncreaseChangeIndex();
+
+            // TODO Check this update
+            // mpTracker->UpdateFrameIMU(1.0f, mpTracker->GetLastKeyFrame()->GetImuBias(), mpTracker->GetLastKeyFrame());
+
+            mpLocalMapper->Release();
+
+#ifdef REGISTER_TIMES
+            std::chrono::steady_clock::time_point time_EndUpdateMap = std::chrono::steady_clock::now();
+
+        double timeUpdateMap = std::chrono::duration_cast<std::chrono::duration<double,std::milli> >(time_EndUpdateMap - time_EndGBA).count();
+        vdUpdateMap_ms.push_back(timeUpdateMap);
+
+        double timeFGBA = std::chrono::duration_cast<std::chrono::duration<double,std::milli> >(time_EndUpdateMap - time_StartFGBA).count();
+        vdFGBATotal_ms.push_back(timeFGBA);
+#endif
+            cout << "Map updated!" <<endl;
+            Eigen::Vector3f ckfLo = mpTriggerKF->GetCameraCenter();
+            Eigen::Vector3f skfLo = mpCurveStartKF->GetCameraCenter();
+            cout << "BEFORE: mpCurrentKF location: "  << ckfLo[0] << " " << ckfLo[1] << " " << ckfLo[2] << endl;
+            cout << "BEFORE: mpStartKF location: "  << skfLo[0] << " " << skfLo[1] << " " << skfLo[2] << endl;
+        }
+
+        mbFinishedGBA = true;
+        mbRunningGBA = false;
+    }///lock(mMutexGBA)
+}
+
 /** 
  * @brief MergeLocal CorrectLoop 中调用
  * @param pActiveMap 当前地图
@@ -2920,6 +3231,7 @@ void LoopClosing::RunGlobalBundleAdjustment(Map* pActiveMap, unsigned long nLoop
             Verbose::PrintMess("Global Bundle Adjustment finished", Verbose::VERBOSITY_NORMAL);
             Verbose::PrintMess("Updating map ...", Verbose::VERBOSITY_NORMAL);
 
+            /// 在此之前 CorrectLoop() MergeLocal() 等， 其实已经将mpLocalMapper release了，在全局BA过程中不妨碍 LM 和 LCD 线程运行，在即将处理结果时重新将 LM线程挂起
             mpLocalMapper->RequestStop();
             // Wait until Local Mapping has effectively stopped
 
@@ -2934,6 +3246,7 @@ void LoopClosing::RunGlobalBundleAdjustment(Map* pActiveMap, unsigned long nLoop
 
             //pActiveMap->PrintEssentialGraph();
             // Correct keyframes starting at map first keyframe
+            /// mvpKeyFrameOrigins中可能只有一个元素
             list<KeyFrame*> lpKFtoCheck(pActiveMap->mvpKeyFrameOrigins.begin(),pActiveMap->mvpKeyFrameOrigins.end());
 
             // 通过树的方式更新未参与全局优化的关键帧，一个关键帧与其父节点的共视点数最多，所以选其作为参考帧
@@ -3120,7 +3433,7 @@ void LoopClosing::RunGlobalBundleAdjustment(Map* pActiveMap, unsigned long nLoop
 
         mbFinishedGBA = true;
         mbRunningGBA = false;
-    }
+    }///lock(mMutexGBA)
 }
 
 // 由外部线程调用,请求终止当前线程
